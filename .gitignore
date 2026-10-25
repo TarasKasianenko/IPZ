@@ -39,3 +39,7 @@ crashlytics-build.properties
 *.unitypackage
 *.app
 .DS_Store
+
+/Tracker/.venv/
+/Tracker/*.task
+__pycache__/
