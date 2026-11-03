@@ -480,7 +480,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 166494197}
-  m_Text: IPZ
+  m_Text: Gesture Air Hockey
   m_OffsetZ: 0
   m_CharacterSize: 0.16000001
   m_LineSpacing: 1

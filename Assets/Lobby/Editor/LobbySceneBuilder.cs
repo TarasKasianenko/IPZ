@@ -53,7 +53,7 @@ namespace IPZ.Lobby
             menu.AddComponent<HandPointer>();
             var lobby = menu.AddComponent<LobbyMenu>();
 
-            MakeText(menu.transform, "Title", "IPZ", 3.2f, new Vector3(0f, 4.55f, 0f), Color.white, FontStyle.Bold);
+            MakeText(menu.transform, "Title", "Gesture Air Hockey", 2.6f, new Vector3(0f, 4.55f, 0f), Color.white, FontStyle.Bold);
             var status = MakeText(menu.transform, "Status", "", 1f, new Vector3(0f, 3.55f, 0f), Color.white);
             var hint = "Złącz palce, aby nacisnąć. Trzymaj złączone i przesuwaj, aby przewijać.";
             MakeText(menu.transform, "Hint", hint, 0.8f, new Vector3(0f, -4.9f, 0f), new Color(0.62f, 0.66f, 0.74f));

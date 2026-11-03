@@ -16,6 +16,9 @@ from mediapipe.tasks.python import vision
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
 PLAYERS = 2
+THUMBNAIL_WIDTH = 240
+THUMBNAIL_EVERY = 2
+THUMBNAIL_MAX_BYTES = 60000
 CAMERA_BACKENDS = {
     "win32": ("CAP_DSHOW", "CAP_MSMF"),
     "linux": ("CAP_V4L2",),
@@ -78,6 +81,14 @@ def draw(frame, slots):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, colors[i], 2)
 
 
+def send_thumbnail(sock, frame, target):
+    h, w = frame.shape[:2]
+    small = cv2.resize(frame, (THUMBNAIL_WIDTH, THUMBNAIL_WIDTH * h // w))
+    ok, jpeg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 55])
+    if ok and jpeg.size <= THUMBNAIL_MAX_BYTES:
+        sock.sendto(jpeg.tobytes(), target)
+
+
 def main():
     parser = argparse.ArgumentParser(description="MediaPipe hand tracker -> Unity over UDP")
     parser.add_argument("--camera", type=int, default=0)
@@ -96,6 +107,8 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
+    thumbnail_target = (args.host, args.port + 1)
+    frame_index = 0
     start = time.monotonic()
     print(f"Sending to udp://{args.host}:{args.port}, Ctrl+C to stop", flush=True)
 
@@ -114,8 +127,12 @@ def main():
                 slots = assign_players(result.hand_landmarks)
                 sock.sendto(json.dumps(build_packet(slots, timestamp_ms)).encode(), target)
 
+                draw(frame, slots)
+                if frame_index % THUMBNAIL_EVERY == 0:
+                    send_thumbnail(sock, frame, thumbnail_target)
+                frame_index += 1
+
                 if args.show:
-                    draw(frame, slots)
                     cv2.imshow("IPZ tracker", frame)
                     if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                         break
