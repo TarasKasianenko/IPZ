@@ -4,22 +4,15 @@
 
 Гравець 1 — рука в лівій половині кадру, гравець 2 — у правій. Кадр віддзеркалений, як у дзеркалі.
 
-## Встановлення
+## Запуск
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
+Windows: `run.cmd`. Linux: `./run.sh`.
+
+Перший запуск створює `.venv` і встановлює залежності, наступні одразу вмикають камеру з вікном перегляду. Параметри передаються далі, наприклад `run.cmd --camera 1`.
 
 `tracker.py` блокує імпорт `sounddevice`: mediapipe тягне його для аудіо, а PortAudio через JACK/PipeWire вмикає real-time режим, і ядро вбиває процес (`killed`). Аудіо трекеру не потрібне.
 
 Модель `hand_landmarker.task` завантажується сама при першому запуску.
-
-## Запуск
-
-```bash
-.venv/bin/python tracker.py --show
-```
 
 Параметри: `--camera N`, `--host`, `--port`, `--show` (вікно з камерою, вихід — `q` або `Esc`), `--no-mirror`.
 

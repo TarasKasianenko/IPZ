@@ -16,6 +16,11 @@ from mediapipe.tasks.python import vision
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
 PLAYERS = 2
+CAMERA_BACKENDS = {
+    "win32": ("CAP_DSHOW", "CAP_MSMF"),
+    "linux": ("CAP_V4L2",),
+    "darwin": ("CAP_AVFOUNDATION",),
+}
 
 
 def ensure_model():
@@ -23,6 +28,16 @@ def ensure_model():
         print(f"Downloading {MODEL_URL}")
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
     return str(MODEL_PATH)
+
+
+def open_camera(index):
+    names = CAMERA_BACKENDS.get(sys.platform, ())
+    for backend in [getattr(cv2, name) for name in names] + [cv2.CAP_ANY]:
+        cap = cv2.VideoCapture(index, backend)
+        if cap.isOpened():
+            return cap
+        cap.release()
+    raise SystemExit(f"Cannot open camera {index}. Is it in use, or blocked in the system privacy settings?")
 
 
 def assign_players(hands):
@@ -54,8 +69,11 @@ def draw(frame, slots):
     for i, hand in enumerate(slots):
         if hand is None:
             continue
-        for lm in hand:
-            cv2.circle(frame, (int(lm.x * w), int(lm.y * h)), 4, colors[i], -1)
+        pts = [(int(lm.x * w), int(lm.y * h)) for lm in hand]
+        for c in vision.HandLandmarksConnections.HAND_CONNECTIONS:
+            cv2.line(frame, pts[c.start], pts[c.end], (255, 255, 255), 2)
+        for p in pts:
+            cv2.circle(frame, p, 4, colors[i], -1)
         cv2.putText(frame, f"P{i + 1}", (int(hand[0].x * w), int(hand[0].y * h) + 24),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, colors[i], 2)
 
@@ -74,9 +92,7 @@ def main():
         running_mode=vision.RunningMode.VIDEO,
         num_hands=PLAYERS,
     )
-    cap = cv2.VideoCapture(args.camera, cv2.CAP_V4L2)
-    if not cap.isOpened():
-        raise SystemExit(f"Cannot open camera {args.camera}")
+    cap = open_camera(args.camera)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
