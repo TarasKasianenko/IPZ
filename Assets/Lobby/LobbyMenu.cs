@@ -259,10 +259,10 @@ namespace IPZ.Lobby
                     break;
                 case MenuAction.HowToPlay:
                     OpenInfo("Jak grać",
-                        "1. Uruchom tracker: tracker.py --show\n" +
-                        "2. Pokaż dłoń do kamery, pojawi się kursor.\n" +
-                        "3. Złącz kciuk i palec wskazujący: naciśnięcie.\n" +
-                        "4. Trzymaj złączone palce i przesuwaj: przewijanie.\n\n" +
+                        "Odbij krążek i trafiaj do bramki przeciwnika.\n" +
+                        "Wygrywa pierwszy, kto zdobędzie 7 goli, albo prowadzący po 3 minutach.\n\n" +
+                        "Otwarta dłoń: gotowość do gry.\n" +
+                        "Pięść przez sekundę: pauza.  Kciuk w górę: rewanż.\n\n" +
                         "Gracz 1 po lewej stronie kadru, gracz 2 po prawej.");
                     break;
                 case MenuAction.HandCheck:
