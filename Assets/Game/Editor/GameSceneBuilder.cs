@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using IPZ.Style;
 using IPZ.Tracking;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -17,8 +18,6 @@ namespace IPZ.AirHockey
         const float CentreY = -0.9f;
         const float FrameThickness = 0.55f;
 
-        static readonly Color Surface = new Color(0.94f, 0.94f, 0.91f);
-        static readonly Color Marking = new Color(0.80f, 0.13f, 0.13f);
 
         static Font font;
 
@@ -33,31 +32,44 @@ namespace IPZ.AirHockey
 
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             var tableTexture = SaveTexture("Table", PaintTable(2048, 1024));
-            var woodTexture = SaveTexture("Wood", PaintWood(512, 128));
 
             var surfaceMaterial = GetMaterial("TableSurface", "Universal Render Pipeline/Unlit", Color.white, tableTexture);
-            var woodMaterial = GetMaterial("Wood", "Universal Render Pipeline/Lit", Color.white, woodTexture);
-            var slotMaterial = GetMaterial("GoalSlot", "Universal Render Pipeline/Unlit", new Color(0.06f, 0.05f, 0.05f), null);
-            var puckMaterial = GetMaterial("Puck", "Universal Render Pipeline/Lit", new Color(0.78f, 0.08f, 0.08f), null);
-            var malletMaterial = GetMaterial("Mallet", "Universal Render Pipeline/Lit", new Color(0.85f, 0.10f, 0.10f), null);
-            var knobMaterial = GetMaterial("MalletKnob", "Universal Render Pipeline/Lit", new Color(1f, 0.32f, 0.28f), null);
-            var screenMaterial = GetMaterial("CameraScreen", "Universal Render Pipeline/Unlit", Color.white, null);
-            var panelMaterial = GetTransparent("MessagePanel", "Universal Render Pipeline/Unlit", new Color(0.05f, 0.06f, 0.09f, 0.82f));
+            var railMaterial = GetMaterial("Rail", "Universal Render Pipeline/Lit", ZutColors.Deep, null);
+            var slotMaterial = NeonStyle.Glow(ArtFolder, "GoalSlot", ZutColors.Red, 2f);
+            var puckMaterial = NeonStyle.Glow(ArtFolder, "Puck", Color.white, 2f);
+            var malletMaterials = new[]
+            {
+                GetMaterial("Mallet1", "Universal Render Pipeline/Lit", ZutColors.Player(0), null),
+                GetMaterial("Mallet2", "Universal Render Pipeline/Lit", ZutColors.Player(1), null),
+            };
+            var knobMaterials = new[]
+            {
+                NeonStyle.Glow(ArtFolder, "Knob1", ZutColors.Player(0), 2.4f),
+                NeonStyle.Glow(ArtFolder, "Knob2", ZutColors.Player(1), 2.4f),
+            };
+            var glowMaterials = new[]
+            {
+                NeonStyle.Glow(ArtFolder, "Glow1", ZutColors.Player(0), 2f),
+                NeonStyle.Glow(ArtFolder, "Glow2", ZutColors.Player(1), 2f),
+            };
+            var screenMaterial = NeonStyle.Screen(ArtFolder);
+            var panelMaterial = GetTransparent("MessagePanel", "Universal Render Pipeline/Unlit", new Color(ZutColors.Night.r, ZutColors.Night.g, ZutColors.Night.b, 0.86f));
             var flashMaterial = GetTransparent("Flash", "Universal Render Pipeline/Unlit", Color.white);
             var trailMaterial = GetTransparent("PuckTrail", "Universal Render Pipeline/Particles/Unlit", Color.white);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f);
+            RenderSettings.ambientLight = new Color(0.5f, 0.52f, 0.58f);
 
             var camera = BuildCamera();
+            NeonStyle.AddBloom();
             var light = new GameObject("Directional Light").AddComponent<Light>();
             light.type = LightType.Directional;
             light.transform.rotation = Quaternion.Euler(25f, -20f, 0f);
             light.intensity = 1.2f;
             light.shadows = LightShadows.None;
 
-            BuildTable(surfaceMaterial, woodMaterial, slotMaterial);
+            BuildTable(surfaceMaterial, railMaterial, slotMaterial, glowMaterials);
 
             var puck = MakeDisc("Puck", null, AirHockeyPhysics.PuckRadius, -0.2f, puckMaterial);
             var trail = puck.gameObject.AddComponent<TrailRenderer>();
@@ -67,30 +79,37 @@ namespace IPZ.AirHockey
             trail.minVertexDistance = 0.04f;
             trail.colorGradient = new Gradient
             {
-                colorKeys = new[] { new GradientColorKey(new Color(0.9f, 0.12f, 0.12f), 0f), new GradientColorKey(new Color(0.9f, 0.12f, 0.12f), 1f) },
-                alphaKeys = new[] { new GradientAlphaKey(0.45f, 0f), new GradientAlphaKey(0f, 1f) },
+                colorKeys = new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(ZutColors.Blue, 1f) },
+                alphaKeys = new[] { new GradientAlphaKey(0.6f, 0f), new GradientAlphaKey(0f, 1f) },
             };
             trail.sharedMaterial = trailMaterial;
             trail.shadowCastingMode = ShadowCastingMode.Off;
 
-            var malletA = MakeMallet("Mallet Left", malletMaterial, knobMaterial);
-            var malletB = MakeMallet("Mallet Right", malletMaterial, knobMaterial);
+            var malletA = MakeMallet("Mallet Left", malletMaterials[0], knobMaterials[0]);
+            var malletB = MakeMallet("Mallet Right", malletMaterials[1], knobMaterials[1]);
 
-            var score = MakeText(null, "Score", "0 : 0", 2.6f, new Vector3(0f, 4.9f, -4f), new Color(1f, 1f, 1f), FontStyle.Bold);
-            var timer = MakeText(null, "Timer", "3:00", 1f, new Vector3(0f, 3.95f, -4f), new Color(0.75f, 0.78f, 0.84f));
-            var names = MakeText(null, "Names", "", 1.1f, new Vector3(0f, 4.9f, -4f), new Color(0.75f, 0.78f, 0.84f));
-            var hint = MakeText(null, "LostHandHint", "", 1f, new Vector3(0f, -5.68f, -4f), new Color(1f, 0.78f, 0.3f));
+            var score = MakeText(null, "Score", "0 : 0", 2.6f, new Vector3(0f, 4.9f, -4f), Color.white, FontStyle.Bold);
+            score.GetComponent<MeshRenderer>().sharedMaterial = NeonStyle.NeonText(ArtFolder, font, Color.white, 1.5f);
+            var timer = MakeText(null, "Timer", "3:00", 1f, new Vector3(0f, 3.95f, -4f), ZutColors.Muted);
+            var names = MakeText(null, "Names", "", 1.1f, new Vector3(0f, 4.9f, -4f), ZutColors.Muted);
+            var hint = MakeText(null, "LostHandHint", "", 1f, new Vector3(0f, -5.68f, -4f), ZutColors.Red);
+            NeonStyle.Logo(null, new Vector3(0f, CentreY, 0.45f), 1.45f);
 
             var panel = MakeQuad("MessagePanel", null, new Vector3(0f, CentreY, -3f), new Vector2(15f, 4.4f), panelMaterial);
-            var message = MakeText(panel.transform, "Message", "", 2.6f, new Vector3(0f, 0.9f, -1f), Color.white, FontStyle.Bold);
-            var detail = MakeText(panel.transform, "Detail", "", 1.05f, new Vector3(0f, -0.9f, -1f), new Color(0.88f, 0.9f, 0.95f));
+            var message = MakeText(panel.transform, "Message", "", 2.1f, new Vector3(0f, 0.9f, -1f), Color.white, FontStyle.Bold);
+            var detail = MakeText(panel.transform, "Detail", "", 1.05f, new Vector3(0f, -0.9f, -1f), ZutColors.Muted);
+            foreach (float edge in new[] { 0.5f, -0.5f })
+            {
+                NeonStyle.GlowQuad("Panel Line Green", panel.transform, new Vector3(-0.25f, edge, -0.01f), new Vector2(0.5f, 0.06f / 4.4f), glowMaterials[0]);
+                NeonStyle.GlowQuad("Panel Line Blue", panel.transform, new Vector3(0.25f, edge, -0.01f), new Vector2(0.5f, 0.06f / 4.4f), glowMaterials[1]);
+            }
             FixScale(message.transform, panel.transform);
             FixScale(detail.transform, panel.transform);
 
             var flash = MakeQuad("GoalFlash", null, new Vector3(0f, 0f, -6f), new Vector2(60f, 40f), flashMaterial);
             flash.SetActive(false);
 
-            var thumbnail = BuildThumbnail(screenMaterial, woodMaterial);
+            var thumbnail = BuildThumbnail(screenMaterial, railMaterial, glowMaterials[1]);
 
             var root = new GameObject("Game");
             root.AddComponent<HandTrackingReceiver>();
@@ -135,12 +154,12 @@ namespace IPZ.AirHockey
             camera.orthographic = true;
             camera.orthographicSize = 6f;
             camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = new Color(0.10f, 0.11f, 0.14f);
+            NeonStyle.SetUpCamera(camera);
             go.AddComponent<AudioListener>();
             return camera;
         }
 
-        static void BuildTable(Material surface, Material wood, Material slot)
+        static void BuildTable(Material surface, Material wood, Material slot, Material[] glow)
         {
             var table = new GameObject("Table").transform;
             table.position = new Vector3(0f, CentreY, 0f);
@@ -158,14 +177,22 @@ namespace IPZ.AirHockey
                 float x = side * (l + t * 0.5f);
                 MakeBlock(side < 0 ? "End Left Upper" : "End Right Upper", table, new Vector3(x, endY, 0f), new Vector3(t, endHeight, 1f), wood);
                 MakeBlock(side < 0 ? "End Left Lower" : "End Right Lower", table, new Vector3(x, -endY, 0f), new Vector3(t, endHeight, 1f), wood);
-                MakeQuad(side < 0 ? "Goal Left" : "Goal Right", table, new Vector3(x, 0f, 0.4f), new Vector2(t, g * 2f), slot);
+                MakeQuad(side < 0 ? "Goal Left" : "Goal Right", table, new Vector3(x, 0f, -0.55f), new Vector2(t, g * 2f), slot);
+
+                var sideGlow = glow[side < 0 ? 0 : 1];
+                float edge = side * l;
+                NeonStyle.GlowQuad("Neon Top", table, new Vector3(edge * 0.5f, w, -0.52f), new Vector2(l + 0.06f, 0.08f), sideGlow);
+                NeonStyle.GlowQuad("Neon Bottom", table, new Vector3(edge * 0.5f, -w, -0.52f), new Vector2(l + 0.06f, 0.08f), sideGlow);
+                NeonStyle.GlowQuad("Neon End Upper", table, new Vector3(edge, endY, -0.52f), new Vector2(0.08f, endHeight + 0.08f), sideGlow);
+                NeonStyle.GlowQuad("Neon End Lower", table, new Vector3(edge, -endY, -0.52f), new Vector2(0.08f, endHeight + 0.08f), sideGlow);
             }
         }
 
-        static Renderer BuildThumbnail(Material screen, Material wood)
+        static Renderer BuildThumbnail(Material screen, Material wood, Material glow)
         {
             var position = new Vector3(9.15f, 4.78f, -1f);
             MakeBlock("Camera Frame", null, position + new Vector3(0f, 0f, 0.5f), new Vector3(2.75f, 2.1f, 0.5f), wood);
+            NeonStyle.GlowFrame("Camera Glow", null, position + new Vector3(0f, 0f, -0.02f), new Vector2(2.6f, 1.95f), 0.06f, glow);
             return MakeQuad("Camera View", null, position, new Vector2(2.5f, 1.875f), screen).GetComponent<Renderer>();
         }
 
@@ -256,7 +283,9 @@ namespace IPZ.AirHockey
         {
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
             float l = AirHockeyPhysics.HalfLength, w = AirHockeyPhysics.HalfWidth;
-            const float lineHalf = 0.05f;
+            const float lineHalf = 0.035f;
+            const float haloWidth = 0.22f;
+            float pixel = l * 2f / width;
             var pixels = new Color[width * height];
 
             for (int py = 0; py < height; py++)
@@ -266,43 +295,31 @@ namespace IPZ.AirHockey
                     float x = ((px + 0.5f) / width - 0.5f) * l * 2f;
                     float y = ((py + 0.5f) / height - 0.5f) * w * 2f;
 
-                    float distance = Mathf.Abs(x);
-                    distance = Mathf.Min(distance, Mathf.Abs(new Vector2(x, y).magnitude - 1.25f));
-                    distance = Mathf.Min(distance, Mathf.Abs(new Vector2(x - l, y).magnitude - 2.3f));
-                    distance = Mathf.Min(distance, Mathf.Abs(new Vector2(x + l, y).magnitude - 2.3f));
+                    float vignette = Mathf.Clamp01(new Vector2(x / l, y / w).magnitude * 0.75f);
+                    var side = x < 0f ? ZutColors.Green : ZutColors.Blue;
+                    var colour = Color.Lerp(Color.Lerp(ZutColors.Deep, side, 0.06f), ZutColors.Night, vignette);
 
-                    float pixel = l * 2f / width;
-                    float ink = 1f - Mathf.Clamp01((distance - lineHalf) / pixel);
-                    pixels[py * width + px] = Color.Lerp(Surface, Marking, ink);
+                    Add(ref colour, Mathf.Abs(y) > 1.25f ? Mathf.Abs(x) : float.MaxValue, Color.Lerp(side, Color.white, 0.25f));
+                    Add(ref colour, Mathf.Abs(new Vector2(x, y).magnitude - 1.25f), side);
+                    Add(ref colour, Mathf.Abs(new Vector2(x - l, y).magnitude - 2.3f), ZutColors.Blue);
+                    Add(ref colour, Mathf.Abs(new Vector2(x + l, y).magnitude - 2.3f), ZutColors.Green);
+                    colour.a = 1f;
+                    pixels[py * width + px] = colour;
                 }
             }
 
             texture.SetPixels(pixels);
             texture.Apply();
             return texture;
-        }
 
-        static Texture2D PaintWood(int width, int height)
-        {
-            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-            var dark = new Color(0.42f, 0.26f, 0.13f);
-            var light = new Color(0.66f, 0.45f, 0.25f);
-            var pixels = new Color[width * height];
-
-            for (int py = 0; py < height; py++)
+            void Add(ref Color target, float distance, Color line)
             {
-                for (int px = 0; px < width; px++)
-                {
-                    float u = (float)px / width, v = (float)py / height;
-                    float grain = Mathf.PerlinNoise(u * 4f + 3f, v * 28f);
-                    float rings = Mathf.Sin((v * 24f + grain * 9f) * Mathf.PI) * 0.5f + 0.5f;
-                    pixels[py * width + px] = Color.Lerp(dark, light, rings * 0.6f + grain * 0.4f);
-                }
+                float outside = Mathf.Max(distance - lineHalf, 0f);
+                float halo = Mathf.Exp(-outside / haloWidth) * 0.45f;
+                float core = 1f - Mathf.Clamp01(outside / pixel);
+                target += line * halo;
+                target = Color.Lerp(target, Color.Lerp(line, Color.white, 0.55f), core);
             }
-
-            texture.SetPixels(pixels);
-            texture.Apply();
-            return texture;
         }
 
         static Texture2D SaveTexture(string name, Texture2D texture)

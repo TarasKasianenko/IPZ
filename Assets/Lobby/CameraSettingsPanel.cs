@@ -7,19 +7,18 @@ namespace IPZ.Lobby
 {
     public class CameraSettingsPanel : MonoBehaviour
     {
-        static readonly Color StatusOk = new Color(0.30f, 0.82f, 0.49f);
-        static readonly Color StatusBad = new Color(0.95f, 0.45f, 0.40f);
-        static readonly Color StatusIdle = new Color(0.62f, 0.66f, 0.74f);
+        static readonly Color StatusOk = ZutColors.Light(ZutColors.Green);
+        static readonly Color StatusBad = ZutColors.Red;
+        static readonly Color StatusIdle = ZutColors.Muted;
 
         [SerializeField] GameObject panel;
         [SerializeField] MenuButton3D[] buttons;
-        [SerializeField] TextMesh xyLabel;
-        [SerializeField] TextMesh zLabel;
-        [SerializeField] TextMesh zPlaceholder;
+        [SerializeField] TextMesh p1Label;
+        [SerializeField] TextMesh p2Label;
+        [SerializeField] TextMesh p2Placeholder;
         [SerializeField] TextMesh statusText;
-        [SerializeField] GameObject xyScreen;
-        [SerializeField] GameObject zScreen;
-        [SerializeField] MenuButton3D flipButton;
+        [SerializeField] GameObject p1Screen;
+        [SerializeField] GameObject p2Screen;
 
         HandTrackingReceiver receiver;
         HandPointer hand;
@@ -48,19 +47,15 @@ namespace IPZ.Lobby
             var state = receiver.Cameras;
             switch (action)
             {
-                case MenuAction.CameraXYPrev:
-                case MenuAction.CameraXYNext:
+                case MenuAction.CameraP1Prev:
+                case MenuAction.CameraP1Next:
                     if (state != null)
-                        receiver.SelectCameras(Step(XyOptions(state), state.xy, action == MenuAction.CameraXYNext), state.z);
+                        receiver.SelectCameras(Step(P1Options(state), state.p1, action == MenuAction.CameraP1Next), state.p2);
                     return true;
-                case MenuAction.CameraZPrev:
-                case MenuAction.CameraZNext:
+                case MenuAction.CameraP2Prev:
+                case MenuAction.CameraP2Next:
                     if (state != null)
-                        receiver.SelectCameras(state.xy, Step(ZOptions(state), state.z, action == MenuAction.CameraZNext));
-                    return true;
-                case MenuAction.CameraZFlip:
-                    hand.DepthFlipped = !hand.DepthFlipped;
-                    PlayerPrefs.SetInt(HandPointer.DepthFlipKey, hand.DepthFlipped ? 1 : 0);
+                        receiver.SelectCameras(state.p1, Step(P2Options(state), state.p2, action == MenuAction.CameraP2Next));
                     return true;
                 case MenuAction.CameraScan:
                     receiver.ScanCameras();
@@ -78,38 +73,37 @@ namespace IPZ.Lobby
         void Refresh()
         {
             var state = receiver.Cameras;
-            flipButton.Text = hand.DepthFlipped ? "Kierunek: ←" : "Kierunek: →";
-
             if (state == null)
             {
-                xyLabel.text = "—";
-                zLabel.text = "—";
-                SetActive(xyScreen, false);
-                SetActive(zScreen, false);
-                zPlaceholder.text = "Brak trackera";
+                p1Label.text = "—";
+                p2Label.text = "—";
+                SetActive(p1Screen, false);
+                SetActive(p2Screen, false);
+                p2Placeholder.text = "";
                 SetStatus(TrackerLauncher.IsLaunching ? "Uruchamianie trackera…" : "Tracker nie jest uruchomiony",
                     TrackerLauncher.IsLaunching ? StatusIdle : StatusBad);
                 return;
             }
 
-            xyLabel.text = $"Kamera {state.xy}";
-            zLabel.text = state.z >= 0 ? $"Kamera {state.z}" : "Wyłączona";
-            SetActive(xyScreen, true);
-            SetActive(zScreen, state.z >= 0);
-            zPlaceholder.text = state.z >= 0 ? "" : "Kamera Z wyłączona\nnaciskanie: złącz palce";
+            bool separate = state.p2 >= 0;
+            p1Label.text = $"Kamera {state.p1}";
+            p2Label.text = separate ? $"Kamera {state.p2}" : "Wspólna";
+            SetActive(p1Screen, true);
+            SetActive(p2Screen, separate);
+            p2Placeholder.text = separate ? "" : "Brak drugiej kamery\nGracz 2 gra w prawej\npołowie kamery gracza 1";
 
             if (!string.IsNullOrEmpty(state.error))
                 SetStatus(state.error, StatusBad);
             else if (state.scanning)
                 SetStatus("Szukam kamer…", StatusIdle);
-            else if (state.z < 0)
-                SetStatus($"Dostępne kamery: {Available(state)}", StatusIdle);
-            else if (!hand.IsVisible)
-                SetStatus("Pokaż dłoń obu kamerom", StatusIdle);
-            else if (!hand.UsesDepth)
-                SetStatus("Kamera Z nie widzi dłoni", StatusBad);
             else
-                SetStatus(hand.IsPressing ? "Naciśnięto" : "Wsuń palec za zieloną linię", hand.IsPressing ? StatusOk : StatusIdle);
+                SetStatus($"Gracz 1: {PlayerText(0)}    Gracz 2: {PlayerText(1)}", StatusOk);
+        }
+
+        string PlayerText(int player)
+        {
+            int first = player * HandTrackingReceiver.HandsPerPlayer;
+            return hand.IsHandPresent(first) || hand.IsHandPresent(first + 1) ? "widać dłoń" : "brak dłoni";
         }
 
         void SetStatus(string text, Color color)
@@ -124,22 +118,19 @@ namespace IPZ.Lobby
                 go.SetActive(active);
         }
 
-        static string Available(CameraState state) =>
-            state.available == null || state.available.Length == 0 ? "—" : string.Join(", ", state.available);
-
-        static List<int> XyOptions(CameraState state)
+        static List<int> P1Options(CameraState state)
         {
             var options = (state.available ?? new int[0]).ToList();
-            if (!options.Contains(state.xy))
-                options.Add(state.xy);
+            if (!options.Contains(state.p1))
+                options.Add(state.p1);
             options.Sort();
             return options;
         }
 
-        static List<int> ZOptions(CameraState state)
+        static List<int> P2Options(CameraState state)
         {
             var options = new List<int> { -1 };
-            options.AddRange((state.available ?? new int[0]).Where(i => i != state.xy).OrderBy(i => i));
+            options.AddRange((state.available ?? new int[0]).Where(i => i != state.p1).OrderBy(i => i));
             return options;
         }
 

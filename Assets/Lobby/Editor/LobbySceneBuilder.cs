@@ -1,6 +1,6 @@
-using System.IO;
 using System.Linq;
 using IPZ.AirHockey;
+using IPZ.Style;
 using IPZ.Tracking;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -18,8 +18,11 @@ namespace IPZ.Lobby
 
         static readonly (string text, MenuAction action, bool primary)[] Items =
         {
-            ("Graj", MenuAction.Play, true),
+            ("Gra 1: Air Hockey", MenuAction.Play, true),
+            ("Gra 2: Labirynt", MenuAction.PlayMaze, true),
             ("Gracze: 2", MenuAction.Players, false),
+            ("Gracz 1: kamera —", MenuAction.CameraP1Next, false),
+            ("Gracz 2: kamera —", MenuAction.CameraP2Next, false),
             ("Jak grać", MenuAction.HowToPlay, false),
             ("Test dłoni", MenuAction.HandCheck, false),
             ("Kamery", MenuAction.Cameras, false),
@@ -31,6 +34,7 @@ namespace IPZ.Lobby
 
         static Font font;
         static Material buttonMaterial, panelMaterial, floorMaterial, cursorMaterial, screenMaterial, frameMaterial;
+        static Material rimMaterial, greenGlow, blueGlow;
 
         [MenuItem("IPZ/Rebuild Lobby Scene")]
         public static void Build()
@@ -39,20 +43,23 @@ namespace IPZ.Lobby
                 return;
 
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            buttonMaterial = GetMaterial("Button", new Color(0.16f, 0.19f, 0.27f), 0.25f);
-            panelMaterial = GetMaterial("Panel", new Color(0.11f, 0.13f, 0.18f), 0.2f);
-            floorMaterial = GetMaterial("Floor", new Color(0.05f, 0.06f, 0.09f), 0.2f);
-            cursorMaterial = GetMaterial("Cursor", Color.white, 0.5f);
-            screenMaterial = GetMaterial("CameraScreen", Color.white, 0f, "Universal Render Pipeline/Unlit");
-            screenMaterial.SetTexture("_BaseMap", GetNoSignalTexture());
-            frameMaterial = GetMaterial("CameraFrame", new Color(0.03f, 0.04f, 0.06f), 0.1f);
+            buttonMaterial = GetMaterial("Button", ZutColors.Deep, 0.25f);
+            panelMaterial = GetMaterial("Panel", ZutColors.Deep, 0.2f);
+            floorMaterial = GetMaterial("Floor", ZutColors.Night, 0.2f);
+            cursorMaterial = NeonStyle.Glow(MaterialFolder, "Cursor", Color.white, 1f);
+            rimMaterial = NeonStyle.Glow(MaterialFolder, "ButtonRim", ZutColors.Blue, 1.5f);
+            greenGlow = NeonStyle.Glow(MaterialFolder, "GlowGreen", ZutColors.Green, 2f);
+            blueGlow = NeonStyle.Glow(MaterialFolder, "GlowBlue", ZutColors.Blue, 2f);
+            screenMaterial = NeonStyle.Screen(MaterialFolder);
+            frameMaterial = GetMaterial("CameraFrame", ZutColors.Night, 0.1f);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.42f, 0.44f, 0.5f);
+            RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.56f);
 
             var camera = BuildCamera();
             BuildEnvironment();
+            NeonStyle.AddBloom();
 
             var menu = new GameObject("Lobby");
             menu.AddComponent<HandTrackingReceiver>();
@@ -60,16 +67,20 @@ namespace IPZ.Lobby
             var cameraSettings = menu.AddComponent<CameraSettingsPanel>();
             var lobby = menu.AddComponent<LobbyMenu>();
 
-            MakeText(menu.transform, "Title", "Gesture Air Hockey", 2.6f, new Vector3(0f, 4.55f, 0f), Color.white, FontStyle.Bold);
-            var status = MakeText(menu.transform, "Status", "", 1f, new Vector3(0f, 3.55f, 0f), Color.white);
+            var title = MakeText(menu.transform, "Title", "Gesture Games", 2.6f, new Vector3(0.9f, 4.55f, 0f), Color.white, FontStyle.Bold);
+            title.GetComponent<MeshRenderer>().sharedMaterial = NeonStyle.NeonText(MaterialFolder, font, Color.white, 1.5f);
+            NeonStyle.Logo(menu.transform, new Vector3(-6.1f, 4.55f, 0f), 1.45f);
+            NeonStyle.GlowQuad("Underline Green", menu.transform, new Vector3(-1.8f, 3.98f, 0f), new Vector2(5.35f, 0.07f), greenGlow);
+            NeonStyle.GlowQuad("Underline Blue", menu.transform, new Vector3(3.6f, 3.98f, 0f), new Vector2(5.35f, 0.07f), blueGlow);
+            var status = MakeText(menu.transform, "Status", "", 1f, new Vector3(0f, 3.5f, 0f), Color.white);
             var hint = "Złącz palce, aby nacisnąć. Trzymaj złączone i przesuwaj, aby przewijać.";
-            MakeText(menu.transform, "Hint", hint, 0.8f, new Vector3(0f, -4.9f, 0f), new Color(0.62f, 0.66f, 0.74f));
-            var toast = MakeText(menu.transform, "Toast", "", 0.8f, new Vector3(0f, 2.4f, -1.5f), new Color(1f, 0.82f, 0.4f));
+            MakeText(menu.transform, "Hint", hint, 0.8f, new Vector3(0f, -5.25f, 0f), ZutColors.Muted);
+            var toast = MakeText(menu.transform, "Toast", "", 0.8f, new Vector3(0f, 2.4f, -1.5f), ZutColors.Red);
 
             var wheel = new GameObject("Wheel").transform;
             wheel.SetParent(menu.transform);
             wheel.localPosition = new Vector3(0f, -0.6f, 0f);
-            var buttons = Items.Select(i => MakeButton(wheel, i.text, i.action, i.primary, new Vector3(5.8f, 1.05f, 0.5f))).ToArray();
+            var buttons = Items.Select(i => MakeButton(wheel, i.text, i.action, i.primary, new Vector3(5.8f, 1.05f, 0.5f), 1.02f)).ToArray();
 
             var panel = BuildPanel(menu.transform, out var infoTitle, out var infoBody, out var back);
             BuildCameraPanel(menu.transform, cameraSettings);
@@ -109,8 +120,8 @@ namespace IPZ.Lobby
             go.transform.position = new Vector3(0f, 0f, -10f);
             var camera = go.AddComponent<Camera>();
             camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = new Color(0.04f, 0.05f, 0.08f);
             camera.fieldOfView = 60f;
+            NeonStyle.SetUpCamera(camera);
             go.AddComponent<AudioListener>();
             return camera;
         }
@@ -130,26 +141,35 @@ namespace IPZ.Lobby
             floor.transform.localScale = new Vector3(6f, 1f, 6f);
             Object.DestroyImmediate(floor.GetComponent<Collider>());
             floor.GetComponent<Renderer>().sharedMaterial = floorMaterial;
+
+            for (int i = -3; i <= 3; i++)
+            {
+                var line = NeonStyle.GlowQuad($"Floor Line {i}", null, new Vector3(i * 4f, -5.38f, 14f), new Vector2(0.05f, 40f),
+                    i < 0 ? greenGlow : i > 0 ? blueGlow : rimMaterial);
+                line.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            }
         }
 
         static GameObject BuildPanel(Transform parent, out TextMesh title, out TextMesh body, out MenuButton3D back)
         {
             var panel = new GameObject("InfoPanel");
             panel.transform.SetParent(parent);
-            panel.transform.localPosition = new Vector3(0f, -0.8f, -0.5f);
+            panel.transform.localPosition = new Vector3(0f, -0.85f, -0.5f);
 
             var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
             board.name = "Board";
             board.transform.SetParent(panel.transform, false);
-            board.transform.localScale = new Vector3(12.5f, 6.6f, 0.3f);
+            board.transform.localScale = new Vector3(15f, 7.6f, 0.3f);
             Object.DestroyImmediate(board.GetComponent<Collider>());
             board.GetComponent<Renderer>().sharedMaterial = panelMaterial;
+            NeonStyle.GlowFrame("Glow", panel.transform, new Vector3(0f, 0f, -0.16f), new Vector2(15f, 7.6f), 0.06f, blueGlow);
 
-            title = MakeText(panel.transform, "Title", "", 1.5f, new Vector3(0f, 2.55f, -0.2f), Color.white, FontStyle.Bold);
-            body = MakeText(panel.transform, "Body", "", 0.95f, new Vector3(0f, 0.3f, -0.2f), new Color(0.9f, 0.92f, 0.96f));
+            title = MakeText(panel.transform, "Title", "", 1.4f, new Vector3(0f, 3.1f, -0.2f), Color.white, FontStyle.Bold);
+            NeonStyle.GlowQuad("Title Line", panel.transform, new Vector3(0f, 2.58f, -0.17f), new Vector2(5f, 0.05f), greenGlow);
+            body = MakeText(panel.transform, "Body", "", 0.76f, new Vector3(0f, 0.05f, -0.2f), Color.white);
 
-            back = MakeButton(panel.transform, "Wstecz", MenuAction.Back, true, new Vector3(4f, 0.95f, 0.4f));
-            back.transform.localPosition = new Vector3(0f, -2.4f, -0.35f);
+            back = MakeButton(panel.transform, "Wstecz", MenuAction.Back, true, new Vector3(4f, 0.9f, 0.4f));
+            back.transform.localPosition = new Vector3(0f, -3.05f, -0.35f);
             return panel;
         }
 
@@ -157,12 +177,13 @@ namespace IPZ.Lobby
         {
             var panel = new GameObject("CameraPanel");
             panel.transform.SetParent(parent);
-            panel.transform.localPosition = new Vector3(0f, -1f, -0.5f);
+            panel.transform.localPosition = new Vector3(0f, -0.8f, -0.5f);
 
             var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
             board.name = "Board";
             board.transform.SetParent(panel.transform, false);
-            board.transform.localScale = new Vector3(17f, 7.8f, 0.3f);
+            board.transform.localScale = new Vector3(17f, 7.6f, 0.3f);
+            NeonStyle.GlowFrame("Glow", panel.transform, new Vector3(0f, 0f, -0.16f), new Vector2(17f, 7.6f), 0.06f, blueGlow);
             Object.DestroyImmediate(board.GetComponent<Collider>());
             board.GetComponent<Renderer>().sharedMaterial = panelMaterial;
 
@@ -170,28 +191,25 @@ namespace IPZ.Lobby
             var back = MakeButton(panel.transform, "Wstecz", MenuAction.Back, true, new Vector3(2.8f, 0.8f, 0.4f), 0.9f);
             back.transform.localPosition = new Vector3(6.6f, 3.3f, -0.35f);
 
-            var xy = BuildCameraColumn(panel.transform, -4.2f, "XY", "widok z przodu", 5053,
-                MenuAction.CameraXYPrev, MenuAction.CameraXYNext, out var xyScreen, out var xyLabel, out _);
-            var z = BuildCameraColumn(panel.transform, 4.2f, "Z", "głębokość naciśnięcia", 5054,
-                MenuAction.CameraZPrev, MenuAction.CameraZNext, out var zScreen, out var zLabel, out var zPlaceholder);
+            var p1 = BuildCameraColumn(panel.transform, -4.2f, "Gracz 1", ZutColors.Player(0), 5054,
+                MenuAction.CameraP1Prev, MenuAction.CameraP1Next, out var p1Screen, out var p1Label, out _);
+            var p2 = BuildCameraColumn(panel.transform, 4.2f, "Gracz 2", ZutColors.Player(1), 5055,
+                MenuAction.CameraP2Prev, MenuAction.CameraP2Next, out var p2Screen, out var p2Label, out var p2Placeholder);
 
             var scan = MakeButton(panel.transform, "Szukaj kamer", MenuAction.CameraScan, false, new Vector3(3.6f, 0.75f, 0.4f), 0.85f);
-            scan.transform.localPosition = new Vector3(-4.2f, -2.75f, -0.35f);
-            var flip = MakeButton(panel.transform, "Kierunek: →", MenuAction.CameraZFlip, false, new Vector3(3.6f, 0.75f, 0.4f), 0.85f);
-            flip.transform.localPosition = new Vector3(4.2f, -2.75f, -0.35f);
+            scan.transform.localPosition = new Vector3(0f, -2.85f, -0.35f);
 
             var status = MakeText(panel.transform, "Status", "", 0.8f, new Vector3(0f, 3.3f, -0.2f), Color.white);
 
             var so = new SerializedObject(settings);
             so.FindProperty("panel").objectReferenceValue = panel;
-            so.FindProperty("xyLabel").objectReferenceValue = xyLabel;
-            so.FindProperty("zLabel").objectReferenceValue = zLabel;
-            so.FindProperty("zPlaceholder").objectReferenceValue = zPlaceholder;
+            so.FindProperty("p1Label").objectReferenceValue = p1Label;
+            so.FindProperty("p2Label").objectReferenceValue = p2Label;
+            so.FindProperty("p2Placeholder").objectReferenceValue = p2Placeholder;
             so.FindProperty("statusText").objectReferenceValue = status;
-            so.FindProperty("xyScreen").objectReferenceValue = xyScreen;
-            so.FindProperty("zScreen").objectReferenceValue = zScreen;
-            so.FindProperty("flipButton").objectReferenceValue = flip;
-            var buttons = xy.Concat(z).Append(scan).Append(flip).Append(back).ToArray();
+            so.FindProperty("p1Screen").objectReferenceValue = p1Screen;
+            so.FindProperty("p2Screen").objectReferenceValue = p2Screen;
+            var buttons = p1.Concat(p2).Append(scan).Append(back).ToArray();
             var list = so.FindProperty("buttons");
             list.arraySize = buttons.Length;
             for (int i = 0; i < buttons.Length; i++)
@@ -201,17 +219,14 @@ namespace IPZ.Lobby
             panel.SetActive(false);
         }
 
-        static MenuButton3D[] BuildCameraColumn(Transform parent, float x, string axis, string caption, int previewPort,
+        static MenuButton3D[] BuildCameraColumn(Transform parent, float x, string title, Color color, int previewPort,
             MenuAction prev, MenuAction next, out GameObject screen, out TextMesh label, out TextMesh placeholder)
         {
-            var column = new GameObject($"Camera {axis}").transform;
+            var column = new GameObject(title).transform;
             column.SetParent(parent, false);
             column.localPosition = new Vector3(x, 0f, 0f);
 
-            var axisText = MakeText(column, "Axis", axis, 1.4f, new Vector3(-2.3f, 2.45f, -0.2f), new Color(0.40f, 0.70f, 1f), FontStyle.Bold);
-            axisText.anchor = TextAnchor.MiddleLeft;
-            var captionText = MakeText(column, "Caption", caption, 0.8f, new Vector3(axis.Length > 1 ? -0.9f : -1.5f, 2.4f, -0.2f), new Color(0.75f, 0.78f, 0.84f));
-            captionText.anchor = TextAnchor.MiddleLeft;
+            MakeText(column, "Title", title, 1.1f, new Vector3(0f, 2.45f, -0.2f), ZutColors.Light(color), FontStyle.Bold);
 
             var frame = GameObject.CreatePrimitive(PrimitiveType.Cube);
             frame.name = "Frame";
@@ -220,6 +235,8 @@ namespace IPZ.Lobby
             frame.transform.localPosition = new Vector3(0f, 0.35f, -0.2f);
             frame.transform.localScale = new Vector3(4.8f, 3.6f, 0.1f);
             frame.GetComponent<Renderer>().sharedMaterial = frameMaterial;
+            NeonStyle.GlowFrame("Glow", column, new Vector3(0f, 0.35f, -0.32f), new Vector2(4.5f, 3.4f), 0.07f,
+                color == ZutColors.Green ? greenGlow : blueGlow);
 
             screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
             screen.name = "Preview";
@@ -235,7 +252,7 @@ namespace IPZ.Lobby
             thumbnailSo.FindProperty("screen").objectReferenceValue = renderer;
             thumbnailSo.ApplyModifiedPropertiesWithoutUndo();
 
-            placeholder = MakeText(column, "Placeholder", "", 0.8f, new Vector3(0f, 0.35f, -0.35f), new Color(0.62f, 0.66f, 0.74f));
+            placeholder = MakeText(column, "Placeholder", "", 0.8f, new Vector3(0f, 0.35f, -0.35f), ZutColors.Muted);
 
             var left = MakeButton(column, "<", prev, false, new Vector3(1f, 0.75f, 0.4f), 1f);
             left.transform.localPosition = new Vector3(-1.9f, -1.8f, -0.35f);
@@ -261,8 +278,10 @@ namespace IPZ.Lobby
             var renderer = body.GetComponent<Renderer>();
             renderer.sharedMaterial = buttonMaterial;
 
-            var label = MakeText(visual, "Label", text, labelSize, new Vector3(0f, 0f, -size.z * 0.5f - 0.02f), Color.white,
+            var label = MakeText(visual, "Label", text, labelSize, new Vector3(0f, 0f, -size.z * 0.5f - 0.03f), Color.white,
                 primary ? FontStyle.Bold : FontStyle.Normal);
+            NeonStyle.GlowFrame("Glow", visual, new Vector3(0f, 0f, -size.z * 0.5f - 0.01f), new Vector2(size.x, size.y), 0.06f, rimMaterial);
+            var glow = visual.Find("Glow").GetComponentsInChildren<Renderer>();
 
             var button = root.AddComponent<MenuButton3D>();
             var so = new SerializedObject(button);
@@ -270,11 +289,16 @@ namespace IPZ.Lobby
             so.FindProperty("visual").objectReferenceValue = visual;
             so.FindProperty("body").objectReferenceValue = renderer;
             so.FindProperty("label").objectReferenceValue = label;
+            var glowList = so.FindProperty("glow");
+            glowList.arraySize = glow.Length;
+            for (int i = 0; i < glow.Length; i++)
+                glowList.GetArrayElementAtIndex(i).objectReferenceValue = glow[i];
             if (primary)
             {
-                so.FindProperty("color").colorValue = new Color(0.07f, 0.45f, 0.88f);
-                so.FindProperty("hoverColor").colorValue = new Color(0.16f, 0.58f, 1f);
-                so.FindProperty("pressedColor").colorValue = new Color(0.04f, 0.33f, 0.68f);
+                so.FindProperty("color").colorValue = ZutColors.Green;
+                so.FindProperty("hoverColor").colorValue = Color.Lerp(ZutColors.Green, Color.white, 0.18f);
+                so.FindProperty("pressedColor").colorValue = ZutColors.Navy;
+                so.FindProperty("glowColor").colorValue = ZutColors.Green;
             }
             so.ApplyModifiedPropertiesWithoutUndo();
             return button;
@@ -316,20 +340,6 @@ namespace IPZ.Lobby
             material.SetFloat("_Smoothness", smoothness);
             EditorUtility.SetDirty(material);
             return material;
-        }
-
-        static Texture2D GetNoSignalTexture()
-        {
-            var path = $"{MaterialFolder}/NoSignal.png";
-            var texture = new Texture2D(4, 4, TextureFormat.RGB24, false);
-            var pixels = new Color[16];
-            for (int i = 0; i < pixels.Length; i++)
-                pixels[i] = new Color(0.07f, 0.08f, 0.11f);
-            texture.SetPixels(pixels);
-            File.WriteAllBytes(path, texture.EncodeToPNG());
-            Object.DestroyImmediate(texture);
-            AssetDatabase.ImportAsset(path);
-            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
         static void AddToBuildSettings()

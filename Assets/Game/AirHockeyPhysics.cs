@@ -15,10 +15,10 @@ namespace IPZ.AirHockey
 
         const float StepSeconds = 1f / 240f;
         const int MaxSteps = 16;
-        const float Friction = 0.15f;
+        const float Friction = 0.35f;
         const float WallBounce = 0.9f;
-        const float MalletBounce = 0.9f;
-        const float MaxPuckSpeed = 24f;
+        const float MalletBounce = 0.75f;
+        const float MaxPuckSpeed = 14f;
         const float MaxMalletSpeed = 34f;
         const float MalletResponse = 25f;
         const float SoundMinSpeed = 0.5f;
@@ -118,16 +118,18 @@ namespace IPZ.AirHockey
             var v = PuckVelocity;
             bool inMouth = Mathf.Abs(p.y) < GoalHalfWidth;
 
-            if (!inMouth && Mathf.Abs(p.x) > HalfLength - PuckRadius && p.x * v.x > 0f)
+            if (!inMouth && Mathf.Abs(p.x) > HalfLength - PuckRadius)
             {
-                Bounce(ref v.x);
+                if (p.x * v.x > 0f)
+                    Bounce(ref v.x);
                 p.x = Mathf.Sign(p.x) * (HalfLength - PuckRadius);
             }
 
             float side = Mathf.Abs(p.x) > HalfLength ? GoalHalfWidth - PuckRadius : HalfWidth - PuckRadius;
-            if (Mathf.Abs(p.y) > side && p.y * v.y > 0f)
+            if (Mathf.Abs(p.y) > side)
             {
-                Bounce(ref v.y);
+                if (p.y * v.y > 0f)
+                    Bounce(ref v.y);
                 p.y = Mathf.Sign(p.y) * side;
             }
 

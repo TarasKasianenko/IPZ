@@ -13,10 +13,10 @@ namespace IPZ.Lobby
         const string SoundKey = "ipz.sound";
         static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
 
-        static readonly Color StatusOk = new Color(0.30f, 0.82f, 0.49f);
-        static readonly Color StatusBad = new Color(0.95f, 0.45f, 0.40f);
-        static readonly Color CursorIdle = Color.white;
-        static readonly Color CursorPinched = new Color(0.30f, 0.82f, 0.49f);
+        static readonly Color StatusOk = ZutColors.Light(ZutColors.Green);
+        static readonly Color StatusBad = ZutColors.Red;
+        static Color CursorIdle => ZutColors.Glow(ZutColors.Blue, 2.5f);
+        static Color CursorPinched => ZutColors.Glow(ZutColors.Green, 2.5f);
 
         [Header("Scene")]
         [SerializeField] Camera menuCamera;
@@ -47,10 +47,12 @@ namespace IPZ.Lobby
 
         [Header("Game")]
         [SerializeField] string gameSceneName = "Game";
+        [SerializeField] string mazeSceneName = "Maze";
         [SerializeField] float mouseOverrideSeconds = 2f;
 
         HandPointer hand;
         CameraSettingsPanel cameras;
+        HandTrackingReceiver receiver;
         MaterialPropertyBlock cursorBlock;
         float scroll, scrollVelocity, pressScroll, pressY, toastUntil;
         float mouseActiveUntil = float.NegativeInfinity;
@@ -68,6 +70,7 @@ namespace IPZ.Lobby
         {
             hand = GetComponent<HandPointer>();
             cameras = GetComponent<CameraSettingsPanel>();
+            receiver = GetComponent<HandTrackingReceiver>();
             cursorBlock = new MaterialPropertyBlock();
             players = Mathf.Clamp(PlayerPrefs.GetInt(PlayersKey, 2), 1, 2);
             soundOn = PlayerPrefs.GetInt(SoundKey, 1) == 1;
@@ -234,6 +237,15 @@ namespace IPZ.Lobby
             if (handCheckOpen)
                 infoBody.text = HandCheckText();
 
+            var cameraState = receiver.Cameras;
+            foreach (var item in items)
+            {
+                if (item.Action == MenuAction.CameraP1Next)
+                    item.Text = $"Gracz 1: {CameraText(cameraState?.p1 ?? -2)}";
+                else if (item.Action == MenuAction.CameraP2Next)
+                    item.Text = $"Gracz 2: {CameraText(cameraState?.p2 ?? -2)}";
+            }
+
             if (toastText.text.Length > 0 && Time.unscaledTime >= toastUntil)
                 toastText.text = "";
         }
@@ -257,7 +269,10 @@ namespace IPZ.Lobby
             switch (button.Action)
             {
                 case MenuAction.Play:
-                    Play();
+                    Play(gameSceneName);
+                    break;
+                case MenuAction.PlayMaze:
+                    Play(mazeSceneName);
                     break;
                 case MenuAction.Players:
                     players = players == 1 ? 2 : 1;
@@ -266,11 +281,13 @@ namespace IPZ.Lobby
                     break;
                 case MenuAction.HowToPlay:
                     OpenInfo("Jak grać",
-                        "Odbij krążek i trafiaj do bramki przeciwnika.\n" +
-                        "Wygrywa pierwszy, kto zdobędzie 7 goli, albo prowadzący po 3 minutach.\n\n" +
-                        "Otwarta dłoń: gotowość do gry.\n" +
-                        "Pięść przez sekundę: pauza.  Kciuk w górę: rewanż.\n\n" +
-                        "Gracz 1 po lewej stronie kadru, gracz 2 po prawej.");
+                        "Gra 1 – Air Hockey: odbijaj krążek do bramki rywala.\n" +
+                        "Wygrywa 7 goli albo prowadzenie po 3 minutach.\n\n" +
+                        "Gra 2 – Labirynt: gracz 1 przechyla planszę\n" +
+                        "góra–dół, gracz 2 lewo–prawo. Doprowadźcie\n" +
+                        "kulkę do zielonej mety, omijajcie dziury.\n\n" +
+                        "Otwarta dłoń: start.  Pięść przez sekundę: pauza.\n" +
+                        "Kciuk w górę: jeszcze raz.");
                     break;
                 case MenuAction.HandCheck:
                     OpenInfo("Test dłoni", HandCheckText());
@@ -287,7 +304,8 @@ namespace IPZ.Lobby
                     break;
                 case MenuAction.About:
                     OpenInfo("O projekcie",
-                        "Inżynierski projekt zespołowy 1\n\n" +
+                        "Inżynierski projekt zespołowy 1\n" +
+                        "Gry: Air Hockey i Labirynt\n\n" +
                         "Sterowanie gestami dłoni:\n" +
                         "kamera, MediaPipe Hand Landmarker i Unity.");
                     break;
@@ -318,14 +336,14 @@ namespace IPZ.Lobby
             scrollVelocity = 0f;
         }
 
-        void Play()
+        void Play(string sceneName)
         {
             PlayerPrefs.Save();
-            if (Application.CanStreamedLevelBeLoaded(gameSceneName))
-                SceneManager.LoadScene(gameSceneName);
+            if (Application.CanStreamedLevelBeLoaded(sceneName))
+                SceneManager.LoadScene(sceneName);
             else
             {
-                toastText.text = $"Scena „{gameSceneName}” nie została jeszcze dodana do Build Settings";
+                toastText.text = $"Scena „{sceneName}” nie została jeszcze dodana do Build Settings";
                 toastUntil = Time.unscaledTime + 3f;
             }
         }
@@ -341,6 +359,8 @@ namespace IPZ.Lobby
         }
 
         string PlayersText() => $"Gracze: {players}";
+
+        static string CameraText(int index) => index >= 0 ? $"kamera {index}" : index == -1 ? "wspólna" : "kamera —";
         string SoundText() => soundOn ? "Dźwięk: włączony" : "Dźwięk: wyłączony";
 
         string HandCheckText()
@@ -350,7 +370,7 @@ namespace IPZ.Lobby
             return "Tracker połączony.\n\n" +
                    $"Dłoń gracza 1: {HandText(0)}\n" +
                    $"Dłoń gracza 2: {HandText(1)}\n" +
-                   $"{(hand.UsesDepth ? "Naciśnięcie (kamera Z)" : "Złączone palce")}: {(hand.IsPressing ? "tak" : "nie")}";
+                   $"Złączone palce: {(hand.IsPressing ? "tak" : "nie")}";
         }
 
         string HandText(int player)

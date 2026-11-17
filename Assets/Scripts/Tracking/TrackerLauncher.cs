@@ -9,7 +9,7 @@ namespace IPZ.Tracking
 {
     public static class TrackerLauncher
     {
-        const int ControlPort = 5055;
+        const int ControlPort = 5056;
 
         static Process process;
 

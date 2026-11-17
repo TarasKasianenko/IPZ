@@ -5,7 +5,7 @@ namespace IPZ.Lobby
     public enum MenuAction
     {
         Play, Players, HowToPlay, HandCheck, Sound, Fullscreen, About, Quit, Back,
-        Cameras, CameraXYPrev, CameraXYNext, CameraZPrev, CameraZNext, CameraZFlip, CameraScan,
+        Cameras, CameraP1Prev, CameraP1Next, CameraP2Prev, CameraP2Next, CameraScan, PlayMaze,
     }
 
     /// A physical menu button: a block with a label that lights up on hover and sinks when pressed.
@@ -17,14 +17,20 @@ namespace IPZ.Lobby
         [SerializeField] Transform visual;
         [SerializeField] Renderer body;
         [SerializeField] TextMesh label;
-        [SerializeField] Color color = new Color(0.16f, 0.19f, 0.27f);
-        [SerializeField] Color hoverColor = new Color(0.27f, 0.33f, 0.47f);
-        [SerializeField] Color pressedColor = new Color(0.36f, 0.45f, 0.65f);
+        [SerializeField] Color color = ZutColors.Deep;
+        [SerializeField] Color hoverColor = ZutColors.Navy;
+        [SerializeField] Color pressedColor = ZutColors.Green;
+        [SerializeField] Renderer[] glow;
+        [SerializeField] Color glowColor = ZutColors.Blue;
+        [SerializeField] float glowIdle = 1.5f;
+        [SerializeField] float glowHover = 2.8f;
+        [SerializeField] float glowPressed = 3.5f;
         [SerializeField] float pressDepth = 0.18f;
         [SerializeField] float animationSpeed = 16f;
 
-        MaterialPropertyBlock block;
+        MaterialPropertyBlock block, glowBlock;
         Color currentColor;
+        float currentGlow;
         float currentDepth;
         bool hovered, pressed;
 
@@ -34,7 +40,9 @@ namespace IPZ.Lobby
         void Awake()
         {
             block = new MaterialPropertyBlock();
+            glowBlock = new MaterialPropertyBlock();
             currentColor = color;
+            currentGlow = glowIdle;
         }
 
         public void SetState(bool isHovered, bool isPressed)
@@ -52,6 +60,13 @@ namespace IPZ.Lobby
             block.SetColor(BaseColor, currentColor);
             body.SetPropertyBlock(block);
             visual.localPosition = new Vector3(0f, 0f, currentDepth);
+
+            if (glow == null || glow.Length == 0)
+                return;
+            currentGlow = Mathf.Lerp(currentGlow, pressed ? glowPressed : hovered ? glowHover : glowIdle, t);
+            glowBlock.SetColor(BaseColor, ZutColors.Glow(pressed ? ZutColors.Green : glowColor, currentGlow));
+            foreach (var r in glow)
+                r.SetPropertyBlock(glowBlock);
         }
     }
 }

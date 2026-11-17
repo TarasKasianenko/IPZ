@@ -80,8 +80,8 @@ namespace IPZ.AirHockey
 
             humanPlayers = Mathf.Clamp(PlayerPrefs.GetInt(PlayersKey, 2), 1, 2);
             hands = HasComputer
-                ? new[] { new PlayerHand(0, 1, 2, 3) }
-                : new[] { new PlayerHand(0, 1), new PlayerHand(2, 3) };
+                ? new[] { new PlayerHand(1, 0, 3, 2) }
+                : new[] { new PlayerHand(1, 0), new PlayerHand(3, 2) };
 
             physics.MalletHit += gameAudio.PlayMallet;
             physics.WallHit += gameAudio.PlayWall;
@@ -282,7 +282,7 @@ namespace IPZ.AirHockey
         {
             score[scorer]++;
             flashLevel = 1f;
-            flashColor = new Color(1f, 0.85f, 0.2f);
+            flashColor = ZutColors.Player(scorer);
             gameAudio.PlayGoal();
             respawnSide = scorer == 0 ? 1 : -1;
             HidePuck();

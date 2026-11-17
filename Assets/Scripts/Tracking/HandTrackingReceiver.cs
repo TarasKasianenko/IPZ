@@ -19,8 +19,8 @@ namespace IPZ.Tracking
     [Serializable]
     public class CameraState
     {
-        public int xy;
-        public int z = -1;
+        public int p1;
+        public int p2 = -1;
         public int[] available;
         public bool scanning;
         public string error;
@@ -33,7 +33,6 @@ namespace IPZ.Tracking
         public string side;
         public bool present;
         public float[] points;
-        public float depth = -1f;
     }
 
     public class HandTrackingReceiver : MonoBehaviour
@@ -88,24 +87,6 @@ namespace IPZ.Tracking
             }
         }
 
-        public bool TryGetDepth(int hand, out float depth)
-        {
-            depth = -1f;
-            lock (sync)
-            {
-                if (latest?.hands == null || latest.cameras == null || latest.cameras.z < 0
-                    || hand < 0 || hand >= latest.hands.Length
-                    || clock.Elapsed.TotalSeconds - latestAt >= staleAfterSeconds)
-                    return false;
-
-                var h = latest.hands[hand];
-                if (!h.present || h.depth < 0f)
-                    return false;
-                depth = h.depth;
-                return true;
-            }
-        }
-
         public CameraState Cameras
         {
             get
@@ -115,7 +96,7 @@ namespace IPZ.Tracking
             }
         }
 
-        public void SelectCameras(int xy, int z) => SendCommand($"{{\"xy\":{xy},\"z\":{z}}}");
+        public void SelectCameras(int p1, int p2) => SendCommand($"{{\"p1\":{p1},\"p2\":{p2}}}");
 
         public void ScanCameras() => SendCommand("{\"scan\":true}");
 
@@ -125,7 +106,7 @@ namespace IPZ.Tracking
             {
                 commands ??= new UdpClient();
                 var bytes = Encoding.UTF8.GetBytes(json);
-                commands.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, port + 3));
+                commands.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, port + 4));
             }
             catch (SocketException e)
             {

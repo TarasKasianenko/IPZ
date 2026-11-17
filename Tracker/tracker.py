@@ -22,7 +22,6 @@ CONFIG_PATH = Path(__file__).with_name("cameras.json")
 PLAYERS = 2
 HANDS_PER_PLAYER = 2
 SIDES = ("Left", "Right")
-INDEX_TIP = 8
 THUMBNAIL_WIDTH = 240
 THUMBNAIL_EVERY = 2
 THUMBNAIL_MAX_BYTES = 60000
@@ -32,7 +31,6 @@ CAMERA_BACKENDS = {
     "darwin": ("CAP_AVFOUNDATION",),
 }
 PROBE_RANGE = 6
-DEPTH_PLANE = 0.5
 
 
 def ensure_model():
@@ -73,76 +71,75 @@ def candidate_indexes():
 def load_config():
     try:
         data = json.loads(CONFIG_PATH.read_text())
-        return int(data.get("xy", 0)), int(data.get("z", -1))
+        return int(data.get("p1", 0)), int(data.get("p2", -1))
     except (OSError, ValueError, TypeError):
         return 0, -1
 
 
-def save_config(xy, z):
+def save_config(p1, p2):
     try:
-        CONFIG_PATH.write_text(json.dumps({"xy": xy, "z": z}))
+        CONFIG_PATH.write_text(json.dumps({"p1": p1, "p2": p2}))
     except OSError as e:
         print(f"Cannot save {CONFIG_PATH.name}: {e}", flush=True)
 
 
 class Cameras:
-    def __init__(self, xy, z):
+    def __init__(self, p1, p2):
         self.lock = threading.Lock()
-        self.xy = xy
-        self.z = -1
-        self.xy_cap = open_camera(xy)
-        self.z_cap = None
-        self.available = [xy]
+        self.p1 = p1
+        self.p2 = -1
+        self.p1_cap = open_camera(p1)
+        self.p2_cap = None
+        self.available = [p1]
         self.error = ""
         self.pending = None
         self.scanning = False
-        if z >= 0 and z != xy:
-            self.switch_z(z)
+        if p2 >= 0 and p2 != p1:
+            self.switch_p2(p2)
 
-    def request(self, xy, z):
+    def request(self, p1, p2):
         with self.lock:
-            self.pending = (xy, z)
+            self.pending = (p1, p2)
 
     def apply_pending(self):
         with self.lock:
             pending, self.pending = self.pending, None
         if pending is None:
             return
-        xy, z = pending
+        p1, p2 = pending
         self.error = ""
-        if xy is not None and xy != self.xy:
-            self.switch_xy(xy)
-        if z is not None and z != self.z:
-            self.switch_z(z)
-        save_config(self.xy, self.z)
+        if p1 is not None and p1 != self.p1:
+            self.switch_p1(p1)
+        if p2 is not None and p2 != self.p2:
+            self.switch_p2(p2)
+        save_config(self.p1, self.p2)
 
-    def switch_xy(self, index):
+    def switch_p1(self, index):
         if index < 0:
             return
-        if index == self.z:
-            self.close_z()
+        if index == self.p2:
+            self.close_p2()
         cap = try_open_camera(index)
         if cap is None:
             self.error = f"Nie można otworzyć kamery {index}"
             return
-        self.xy_cap.release()
-        self.xy_cap, self.xy = cap, index
+        self.p1_cap.release()
+        self.p1_cap, self.p1 = cap, index
 
-    def switch_z(self, index):
-        if index < 0 or index == self.xy:
-            self.close_z()
+    def switch_p2(self, index):
+        self.close_p2()
+        if index < 0 or index == self.p1:
             return
-        self.close_z()
         cap = try_open_camera(index)
         if cap is None:
             self.error = f"Nie można otworzyć kamery {index}"
             return
-        self.z_cap, self.z = cap, index
+        self.p2_cap, self.p2 = cap, index
 
-    def close_z(self):
-        if self.z_cap is not None:
-            self.z_cap.release()
-        self.z_cap, self.z = None, -1
+    def close_p2(self):
+        if self.p2_cap is not None:
+            self.p2_cap.release()
+        self.p2_cap, self.p2 = None, -1
 
     def scan(self):
         with self.lock:
@@ -154,7 +151,7 @@ class Cameras:
     def _scan(self):
         found = []
         for index in candidate_indexes():
-            if index in (self.xy, self.z):
+            if index in (self.p1, self.p2):
                 found.append(index)
                 continue
             cap = try_open_camera(index, strict=True)
@@ -165,18 +162,18 @@ class Cameras:
             if ok:
                 found.append(index)
         with self.lock:
-            self.available = sorted(set(found) | {self.xy} | ({self.z} if self.z >= 0 else set()))
+            self.available = sorted(set(found) | {self.p1} | ({self.p2} if self.p2 >= 0 else set()))
             self.scanning = False
         print(f"Cameras found: {self.available}", flush=True)
 
     def state(self):
         with self.lock:
-            return {"xy": self.xy, "z": self.z, "available": list(self.available),
+            return {"p1": self.p1, "p2": self.p2, "available": list(self.available),
                     "scanning": self.scanning, "error": self.error}
 
     def release(self):
-        self.xy_cap.release()
-        self.close_z()
+        self.p1_cap.release()
+        self.close_p2()
 
 
 def listen_for_commands(sock, cameras):
@@ -190,48 +187,50 @@ def listen_for_commands(sock, cameras):
             continue
         if command.get("scan"):
             cameras.scan()
-        if "xy" in command or "z" in command:
-            xy = command.get("xy")
-            z = command.get("z")
-            cameras.request(None if xy is None else int(xy), None if z is None else int(z))
+        if "p1" in command or "p2" in command:
+            p1 = command.get("p1")
+            p2 = command.get("p2")
+            cameras.request(None if p1 is None else int(p1), None if p2 is None else int(p2))
 
 
 def hand_label(name, mirrored):
-    if not mirrored:
+    if mirrored:
         return name
     return {"Left": "Right", "Right": "Left"}.get(name, name)
 
 
-def assign_hands(result, mirrored):
-    halves = [[] for _ in range(PLAYERS)]
-    for lms, cats in zip(result.hand_landmarks, result.handedness):
-        player = min(int(lms[0].x * PLAYERS), PLAYERS - 1)
-        halves[player].append((lms, hand_label(cats[0].category_name, mirrored)))
+def place_hands(slots, player, hands):
+    for lms, label in sorted(hands, key=lambda h: h[0][0].x)[:HANDS_PER_PLAYER]:
+        side = SIDES.index(label) if label in SIDES else 0
+        if slots[player * HANDS_PER_PLAYER + side] is not None:
+            side = 1 - side
+        slots[player * HANDS_PER_PLAYER + side] = lms
 
+
+def labelled(result, mirrored):
+    return [(lms, hand_label(cats[0].category_name, mirrored))
+            for lms, cats in zip(result.hand_landmarks, result.handedness)]
+
+
+def assign_shared(result, mirrored):
+    halves = [[] for _ in range(PLAYERS)]
+    for lms, label in labelled(result, mirrored):
+        halves[min(int(lms[0].x * PLAYERS), PLAYERS - 1)].append((lms, label))
     slots = [None] * (PLAYERS * HANDS_PER_PLAYER)
     for player, hands in enumerate(halves):
-        for lms, label in sorted(hands, key=lambda h: h[0][0].x)[:HANDS_PER_PLAYER]:
-            side = SIDES.index(label) if label in SIDES else 0
-            if slots[player * HANDS_PER_PLAYER + side] is not None:
-                side = 1 - side
-            slots[player * HANDS_PER_PLAYER + side] = lms
+        place_hands(slots, player, hands)
     return slots
 
 
-def match_depths(slots, side_hands):
-    depths = [-1.0] * len(slots)
-    free = list(side_hands)
-    order = sorted((i for i, lms in enumerate(slots) if lms is not None), key=lambda i: slots[i][0].y)
-    for i in order:
-        if not free:
-            break
-        best = min(free, key=lambda lms: abs(lms[0].y - slots[i][0].y))
-        free.remove(best)
-        depths[i] = round(best[INDEX_TIP].x, 4)
-    return depths
+def assign_separate(results, mirrored):
+    slots = [None] * (PLAYERS * HANDS_PER_PLAYER)
+    for player, result in enumerate(results):
+        if result is not None:
+            place_hands(slots, player, labelled(result, mirrored))
+    return slots
 
 
-def build_packet(slots, depths, timestamp_ms, cameras):
+def build_packet(slots, timestamp_ms, cameras):
     hands = []
     for i, lms in enumerate(slots):
         points = []
@@ -243,7 +242,6 @@ def build_packet(slots, depths, timestamp_ms, cameras):
             "side": SIDES[i % HANDS_PER_PLAYER],
             "present": lms is not None,
             "points": points,
-            "depth": depths[i] if lms is not None else -1.0,
         })
     return {"t": timestamp_ms, "hands": hands, "cameras": cameras}
 
@@ -258,28 +256,39 @@ def draw_skeleton(frame, lms, color):
     return pts
 
 
-def draw(frame, slots):
+PLAYER_COLORS = [(62, 129, 0), (214, 98, 29)]
+
+
+def draw_hands(frame, slots, players):
+    for i, lms in enumerate(slots):
+        player = i // HANDS_PER_PLAYER
+        if lms is None or player not in players:
+            continue
+        pts = draw_skeleton(frame, lms, PLAYER_COLORS[player])
+        cv2.putText(frame, f"P{player + 1} {SIDES[i % HANDS_PER_PLAYER]}", (pts[0][0], pts[0][1] + 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, PLAYER_COLORS[player], 2)
+
+
+def draw_divider(frame):
     h, w = frame.shape[:2]
     for k in range(1, PLAYERS):
         cv2.line(frame, (w * k // PLAYERS, 0), (w * k // PLAYERS, h), (200, 200, 200), 1)
-    colors = [(0, 128, 255), (255, 128, 0)]
-    for i, lms in enumerate(slots):
-        if lms is None:
-            continue
-        player = i // HANDS_PER_PLAYER
-        pts = draw_skeleton(frame, lms, colors[player])
-        cv2.putText(frame, f"P{player + 1} {SIDES[i % HANDS_PER_PLAYER]}", (pts[0][0], pts[0][1] + 24),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, colors[player], 2)
 
 
-def draw_side(frame, side_hands):
+def centre_strip(frame, width_share):
     h, w = frame.shape[:2]
-    x = int(DEPTH_PLANE * w)
-    cv2.line(frame, (x, 0), (x, h), (80, 220, 120), 2)
-    for lms in side_hands:
-        draw_skeleton(frame, lms, (80, 220, 120))
-        tip = (int(lms[INDEX_TIP].x * w), int(lms[INDEX_TIP].y * h))
-        cv2.circle(frame, tip, 8, (0, 255, 255), 2)
+    strip = int(w * width_share)
+    left = (w - strip) // 2
+    return frame[:, left:left + strip]
+
+
+def side_by_side(first, second):
+    h = first.shape[0]
+    if second.shape[0] != h:
+        second = cv2.resize(second, (second.shape[1] * h // second.shape[0], h))
+    joined = cv2.hconcat([centre_strip(first, 0.5), centre_strip(second, 0.5 * first.shape[1] / second.shape[1])])
+    draw_divider(joined)
+    return joined
 
 
 def send_thumbnail(sock, frame, target):
@@ -296,8 +305,8 @@ def to_image(frame):
 
 def main():
     parser = argparse.ArgumentParser(description="MediaPipe hand tracker -> Unity over UDP")
-    parser.add_argument("--camera", type=int, default=None, help="front (XY) camera, default from cameras.json or 0")
-    parser.add_argument("--camera-z", type=int, default=None, help="side (Z) camera for press depth, -1 for none")
+    parser.add_argument("--camera", type=int, default=None, help="player 1 camera, default from cameras.json or 0")
+    parser.add_argument("--camera-p2", type=int, default=None, help="player 2 camera, -1 to share player 1's camera")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5052)
     parser.add_argument("--show", action="store_true", help="show camera preview window")
@@ -307,10 +316,11 @@ def main():
     if args.hide:
         args.show = False
 
-    saved_xy, saved_z = load_config()
-    xy = saved_xy if args.camera is None else args.camera
-    z = saved_z if args.camera_z is None else args.camera_z
+    saved_p1, saved_p2 = load_config()
+    p1 = saved_p1 if args.camera is None else args.camera
+    p2 = saved_p2 if args.camera_p2 is None else args.camera_p2
     model = ensure_model()
+    mirrored = not args.no_mirror
 
     def make_landmarker(hands):
         return vision.HandLandmarker.create_from_options(vision.HandLandmarkerOptions(
@@ -319,61 +329,67 @@ def main():
             num_hands=hands,
         ))
 
-    cameras = Cameras(xy, z)
+    def read(cap):
+        ok, frame = cap.read()
+        if not ok:
+            return None
+        return cv2.flip(frame, 1) if mirrored else frame
+
+    cameras = Cameras(p1, p2)
     cameras.scan()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
-    xy_preview = (args.host, args.port + 1)
-    z_preview = (args.host, args.port + 2)
+    game_preview = (args.host, args.port + 1)
+    player_previews = [(args.host, args.port + 2), (args.host, args.port + 3)]
     control = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    control.bind((args.host, args.port + 3))
+    control.bind((args.host, args.port + 4))
     threading.Thread(target=listen_for_commands, args=(control, cameras), daemon=True).start()
 
     frame_index = 0
     start = time.monotonic()
-    print(f"Sending to udp://{args.host}:{args.port}, commands on {args.port + 3}, Ctrl+C to stop", flush=True)
+    print(f"Sending to udp://{args.host}:{args.port}, commands on {args.port + 4}, Ctrl+C to stop", flush=True)
 
-    with make_landmarker(PLAYERS * HANDS_PER_PLAYER) as landmarker, make_landmarker(PLAYERS * HANDS_PER_PLAYER) as side_landmarker:
+    with make_landmarker(PLAYERS * HANDS_PER_PLAYER) as first_landmarker, \
+            make_landmarker(HANDS_PER_PLAYER) as second_landmarker:
         try:
             while True:
                 cameras.apply_pending()
-                ok, frame = cameras.xy_cap.read()
-                if not ok:
+                first = read(cameras.p1_cap)
+                if first is None:
                     time.sleep(0.05)
                     continue
-                if not args.no_mirror:
-                    frame = cv2.flip(frame, 1)
                 timestamp_ms = int((time.monotonic() - start) * 1000)
-                result = landmarker.detect_for_video(to_image(frame), timestamp_ms)
-                slots = assign_hands(result, not args.no_mirror)
+                first_result = first_landmarker.detect_for_video(to_image(first), timestamp_ms)
 
-                side_frame, side_hands = None, []
-                if cameras.z_cap is not None:
-                    ok, side_frame = cameras.z_cap.read()
-                    if ok:
-                        side_hands = side_landmarker.detect_for_video(to_image(side_frame), timestamp_ms).hand_landmarks
-                    else:
-                        side_frame = None
-                depths = match_depths(slots, side_hands)
-                packet = build_packet(slots, depths, timestamp_ms, cameras.state())
+                second = read(cameras.p2_cap) if cameras.p2_cap is not None else None
+                if second is None:
+                    slots = assign_shared(first_result, mirrored)
+                else:
+                    second_result = second_landmarker.detect_for_video(to_image(second), timestamp_ms)
+                    slots = assign_separate([first_result, second_result], mirrored)
+
+                packet = build_packet(slots, timestamp_ms, cameras.state())
                 sock.sendto(json.dumps(packet).encode(), target)
 
-                draw(frame, slots)
-                if side_frame is not None:
-                    draw_side(side_frame, side_hands)
+                if second is None:
+                    draw_hands(first, slots, (0, 1))
+                    draw_divider(first)
+                    combined = first
+                else:
+                    draw_hands(first, slots, (0,))
+                    draw_hands(second, slots, (1,))
+                    combined = side_by_side(first, second)
+
                 if frame_index % THUMBNAIL_EVERY == 0:
-                    send_thumbnail(sock, frame, xy_preview)
-                    if side_frame is not None:
-                        send_thumbnail(sock, side_frame, z_preview)
+                    send_thumbnail(sock, combined, game_preview)
+                    send_thumbnail(sock, first, player_previews[0])
+                    if second is not None:
+                        send_thumbnail(sock, second, player_previews[1])
                 frame_index += 1
 
                 if args.show:
-                    cv2.imshow("IPZ tracker XY", frame)
-                    if side_frame is not None:
-                        cv2.imshow("IPZ tracker Z", side_frame)
-                    elif cv2.getWindowProperty("IPZ tracker Z", cv2.WND_PROP_VISIBLE) > 0:
-                        cv2.destroyWindow("IPZ tracker Z")
+                    cv2.imshow("IPZ tracker", combined)
                     if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                         break
         except KeyboardInterrupt:

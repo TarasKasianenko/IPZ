@@ -19,6 +19,7 @@ namespace IPZ.AirHockey
 
         readonly Vector3[] points = new Vector3[HandTrackingReceiver.LandmarkCount];
         readonly int[] slots;
+        int lastSlot = -1;
         float lastSeenAt = float.NegativeInfinity;
         HandGesture candidate;
         float candidateSince;
@@ -36,13 +37,15 @@ namespace IPZ.AirHockey
         public void Update(HandTrackingReceiver receiver, float now)
         {
             var seen = HandGesture.None;
-            bool found = false;
+            bool found = lastSlot >= 0 && receiver.TryGetHand(lastSlot, points);
             foreach (int slot in slots)
             {
+                if (found)
+                    break;
                 if (!receiver.TryGetHand(slot, points))
                     continue;
                 found = true;
-                break;
+                lastSlot = slot;
             }
 
             if (found)
