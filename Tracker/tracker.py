@@ -18,6 +18,14 @@ MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
 PLAYERS = 2
 HANDS_PER_PLAYER = 2
 SIDES = ("Left", "Right")
+THUMBNAIL_WIDTH = 240
+THUMBNAIL_EVERY = 2
+THUMBNAIL_MAX_BYTES = 60000
+CAMERA_BACKENDS = {
+    "win32": ("CAP_DSHOW", "CAP_MSMF"),
+    "linux": ("CAP_V4L2",),
+    "darwin": ("CAP_AVFOUNDATION",),
+}
 
 
 def ensure_model():
@@ -25,6 +33,16 @@ def ensure_model():
         print(f"Downloading {MODEL_URL}")
         urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
     return str(MODEL_PATH)
+
+
+def open_camera(index):
+    names = CAMERA_BACKENDS.get(sys.platform, ())
+    for backend in [getattr(cv2, name) for name in names] + [cv2.CAP_ANY]:
+        cap = cv2.VideoCapture(index, backend)
+        if cap.isOpened():
+            return cap
+        cap.release()
+    raise SystemExit(f"Cannot open camera {index}. Is it in use, or blocked in the system privacy settings?")
 
 
 def hand_label(name, mirrored):
@@ -83,6 +101,14 @@ def draw(frame, slots):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, colors[player], 2)
 
 
+def send_thumbnail(sock, frame, target):
+    h, w = frame.shape[:2]
+    small = cv2.resize(frame, (THUMBNAIL_WIDTH, THUMBNAIL_WIDTH * h // w))
+    ok, jpeg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 55])
+    if ok and jpeg.size <= THUMBNAIL_MAX_BYTES:
+        sock.sendto(jpeg.tobytes(), target)
+
+
 def main():
     parser = argparse.ArgumentParser(description="MediaPipe hand tracker -> Unity over UDP")
     parser.add_argument("--camera", type=int, default=0)
@@ -97,12 +123,12 @@ def main():
         running_mode=vision.RunningMode.VIDEO,
         num_hands=PLAYERS * HANDS_PER_PLAYER,
     )
-    cap = cv2.VideoCapture(args.camera, cv2.CAP_V4L2)
-    if not cap.isOpened():
-        raise SystemExit(f"Cannot open camera {args.camera}")
+    cap = open_camera(args.camera)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
+    thumbnail_target = (args.host, args.port + 1)
+    frame_index = 0
     start = time.monotonic()
     print(f"Sending to udp://{args.host}:{args.port}, Ctrl+C to stop", flush=True)
 
@@ -121,8 +147,12 @@ def main():
                 slots = assign_hands(result, not args.no_mirror)
                 sock.sendto(json.dumps(build_packet(slots, timestamp_ms)).encode(), target)
 
+                draw(frame, slots)
+                if frame_index % THUMBNAIL_EVERY == 0:
+                    send_thumbnail(sock, frame, thumbnail_target)
+                frame_index += 1
+
                 if args.show:
-                    draw(frame, slots)
                     cv2.imshow("IPZ tracker", frame)
                     if cv2.waitKey(1) & 0xFF in (27, ord("q")):
                         break
