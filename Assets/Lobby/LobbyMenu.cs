@@ -1,3 +1,4 @@
+using IPZ.Tracking;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -5,7 +6,7 @@ namespace IPZ.Lobby
 {
     /// 3D lobby: the buttons sit on a wheel that turns when scrolled. The hand pointer and the mouse
     /// feed the same press, drag and click logic, and buttons are found by raycasting into the scene.
-    [RequireComponent(typeof(HandPointer))]
+    [RequireComponent(typeof(HandPointer), typeof(CameraSettingsPanel))]
     public class LobbyMenu : MonoBehaviour
     {
         const string PlayersKey = "ipz.players";
@@ -49,6 +50,7 @@ namespace IPZ.Lobby
         [SerializeField] float mouseOverrideSeconds = 2f;
 
         HandPointer hand;
+        CameraSettingsPanel cameras;
         MaterialPropertyBlock cursorBlock;
         float scroll, scrollVelocity, pressScroll, pressY, toastUntil;
         float mouseActiveUntil = float.NegativeInfinity;
@@ -58,13 +60,14 @@ namespace IPZ.Lobby
         int players;
         bool soundOn;
 
-        bool IsInfoOpen => infoPanel.activeSelf;
+        bool IsInfoOpen => infoPanel.activeSelf || cameras.IsOpen;
         float MinScroll => Mathf.Min(scrollMargin, (items.Length - 1) * 0.5f);
         float MaxScroll => items.Length - 1 - MinScroll;
 
         void Awake()
         {
             hand = GetComponent<HandPointer>();
+            cameras = GetComponent<CameraSettingsPanel>();
             cursorBlock = new MaterialPropertyBlock();
             players = Mathf.Clamp(PlayerPrefs.GetInt(PlayersKey, 2), 1, 2);
             soundOn = PlayerPrefs.GetInt(SoundKey, 1) == 1;
@@ -111,7 +114,7 @@ namespace IPZ.Lobby
             }
 
             viewport = useHand ? hand.Position : new Vector2(mouse.x / Screen.width, mouse.y / Screen.height);
-            pressed = useHand ? hand.IsPinching : Input.GetMouseButton(0);
+            pressed = useHand ? hand.IsPressing : Input.GetMouseButton(0);
             cursorVisible = useHand;
 
             if (!useHand && !IsInfoOpen && wheelDelta != 0f)
@@ -153,6 +156,8 @@ namespace IPZ.Lobby
             foreach (var item in items)
                 item.SetState(item == hoveredButton, item == hoveredButton && item == pressedButton);
             backButton.SetState(backButton == hoveredButton, backButton == hoveredButton && backButton == pressedButton);
+            foreach (var button in cameras.Buttons)
+                button.SetState(button == hoveredButton, button == hoveredButton && button == pressedButton);
 
             if (clicked != null)
                 Run(clicked);
@@ -221,7 +226,9 @@ namespace IPZ.Lobby
         void UpdateTexts()
         {
             bool receiving = hand.IsReceiving;
-            statusText.text = receiving ? "Tracker połączony" : "Tracker nie jest uruchomiony, działa tylko mysz";
+            statusText.text = receiving ? "Tracker połączony"
+                : TrackerLauncher.IsLaunching ? "Uruchamianie trackera…"
+                : "Tracker nie jest uruchomiony, działa tylko mysz";
             statusText.color = receiving ? StatusOk : StatusBad;
 
             if (handCheckOpen)
@@ -287,9 +294,18 @@ namespace IPZ.Lobby
                 case MenuAction.Quit:
                     Quit();
                     break;
+                case MenuAction.Cameras:
+                    cameras.Open();
+                    scrollVelocity = 0f;
+                    break;
                 case MenuAction.Back:
                     infoPanel.SetActive(false);
+                    cameras.Close();
                     handCheckOpen = false;
+                    PlayerPrefs.Save();
+                    break;
+                default:
+                    cameras.Handle(button.Action);
                     break;
             }
         }
@@ -334,9 +350,13 @@ namespace IPZ.Lobby
             return "Tracker połączony.\n\n" +
                    $"Dłoń gracza 1: {HandText(0)}\n" +
                    $"Dłoń gracza 2: {HandText(1)}\n" +
-                   $"Złączone palce: {(hand.IsPinching ? "tak" : "nie")}";
+                   $"{(hand.UsesDepth ? "Naciśnięcie (kamera Z)" : "Złączone palce")}: {(hand.IsPressing ? "tak" : "nie")}";
         }
 
-        string HandText(int player) => hand.IsHandPresent(player) ? "widoczna" : "niewidoczna";
+        string HandText(int player)
+        {
+            int first = player * HandTrackingReceiver.HandsPerPlayer;
+            return hand.IsHandPresent(first) || hand.IsHandPresent(first + 1) ? "widoczna" : "niewidoczna";
+        }
     }
 }

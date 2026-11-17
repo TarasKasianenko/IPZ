@@ -12,21 +12,36 @@ namespace IPZ.Tracking
     class HandPacket
     {
         public long t;
-        public HandPlayer[] players;
+        public HandData[] hands;
+        public CameraState cameras;
     }
 
     [Serializable]
-    class HandPlayer
+    public class CameraState
     {
-        public int id;
+        public int xy;
+        public int z = -1;
+        public int[] available;
+        public bool scanning;
+        public string error;
+    }
+
+    [Serializable]
+    class HandData
+    {
+        public int player;
+        public string side;
         public bool present;
         public float[] points;
+        public float depth = -1f;
     }
 
     public class HandTrackingReceiver : MonoBehaviour
     {
         public const int LandmarkCount = 21;
         public const int PlayerCount = 2;
+        public const int HandsPerPlayer = 2;
+        public const int HandCount = PlayerCount * HandsPerPlayer;
 
         [SerializeField] int port = 5052;
         [SerializeField] float staleAfterSeconds = 0.5f;
@@ -35,9 +50,13 @@ namespace IPZ.Tracking
         readonly Stopwatch clock = Stopwatch.StartNew();
         HandPacket latest;
         double latestAt;
+        UdpClient commands;
         UdpClient client;
         Thread thread;
         volatile bool running;
+
+        public static int PlayerOf(int hand) => hand / HandsPerPlayer;
+        public static bool IsLeft(int hand) => hand % HandsPerPlayer == 0;
 
         public bool IsReceiving
         {
@@ -48,28 +67,73 @@ namespace IPZ.Tracking
             }
         }
 
-        public bool TryGetHand(int player, Vector3[] result)
+        public bool TryGetHand(int hand, Vector3[] result)
         {
             if (result == null || result.Length < LandmarkCount)
                 throw new ArgumentException($"result must hold {LandmarkCount} points");
 
             lock (sync)
             {
-                if (latest?.players == null || clock.Elapsed.TotalSeconds - latestAt >= staleAfterSeconds)
+                if (latest?.hands == null || hand < 0 || hand >= latest.hands.Length
+                    || clock.Elapsed.TotalSeconds - latestAt >= staleAfterSeconds)
                     return false;
 
-                foreach (var p in latest.players)
-                {
-                    if (p.id != player || !p.present || p.points == null || p.points.Length < LandmarkCount * 3)
-                        continue;
+                var h = latest.hands[hand];
+                if (!h.present || h.points == null || h.points.Length < LandmarkCount * 3)
+                    return false;
 
-                    for (int i = 0; i < LandmarkCount; i++)
-                        result[i] = new Vector3(p.points[i * 3], 1f - p.points[i * 3 + 1], p.points[i * 3 + 2]);
-                    return true;
-                }
+                for (int i = 0; i < LandmarkCount; i++)
+                    result[i] = new Vector3(h.points[i * 3], 1f - h.points[i * 3 + 1], h.points[i * 3 + 2]);
+                return true;
             }
-            return false;
         }
+
+        public bool TryGetDepth(int hand, out float depth)
+        {
+            depth = -1f;
+            lock (sync)
+            {
+                if (latest?.hands == null || latest.cameras == null || latest.cameras.z < 0
+                    || hand < 0 || hand >= latest.hands.Length
+                    || clock.Elapsed.TotalSeconds - latestAt >= staleAfterSeconds)
+                    return false;
+
+                var h = latest.hands[hand];
+                if (!h.present || h.depth < 0f)
+                    return false;
+                depth = h.depth;
+                return true;
+            }
+        }
+
+        public CameraState Cameras
+        {
+            get
+            {
+                lock (sync)
+                    return IsReceivingUnlocked() ? latest.cameras : null;
+            }
+        }
+
+        public void SelectCameras(int xy, int z) => SendCommand($"{{\"xy\":{xy},\"z\":{z}}}");
+
+        public void ScanCameras() => SendCommand("{\"scan\":true}");
+
+        void SendCommand(string json)
+        {
+            try
+            {
+                commands ??= new UdpClient();
+                var bytes = Encoding.UTF8.GetBytes(json);
+                commands.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, port + 3));
+            }
+            catch (SocketException e)
+            {
+                UnityEngine.Debug.LogWarning($"HandTrackingReceiver: {e.Message}");
+            }
+        }
+
+        bool IsReceivingUnlocked() => latest != null && clock.Elapsed.TotalSeconds - latestAt < staleAfterSeconds;
 
         void OnEnable()
         {
@@ -86,6 +150,8 @@ namespace IPZ.Tracking
             thread?.Join(500);
             client = null;
             thread = null;
+            commands?.Close();
+            commands = null;
         }
 
         void Listen()

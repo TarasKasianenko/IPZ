@@ -80,8 +80,8 @@ namespace IPZ.AirHockey
 
             humanPlayers = Mathf.Clamp(PlayerPrefs.GetInt(PlayersKey, 2), 1, 2);
             hands = HasComputer
-                ? new[] { new PlayerHand(0, 1) }
-                : new[] { new PlayerHand(0), new PlayerHand(1) };
+                ? new[] { new PlayerHand(0, 1, 2, 3) }
+                : new[] { new PlayerHand(0, 1), new PlayerHand(2, 3) };
 
             physics.MalletHit += gameAudio.PlayMallet;
             physics.WallHit += gameAudio.PlayWall;
@@ -340,7 +340,9 @@ namespace IPZ.AirHockey
             {
                 case State.Waiting:
                     message = hands.Length == 1 ? "Pokaż otwartą dłoń" : "Pokażcie otwarte dłonie";
-                    detail = receiver.IsReceiving ? ReadinessText() : "Brak danych z trackera. Uruchom Tracker/run.cmd";
+                    detail = receiver.IsReceiving ? ReadinessText()
+                        : TrackerLauncher.IsLaunching ? "Uruchamianie trackera…"
+                        : "Brak danych z trackera. Uruchom Tracker/run.cmd";
                     break;
                 case State.Countdown:
                     message = Mathf.CeilToInt(countdownSeconds - stateTime).ToString();

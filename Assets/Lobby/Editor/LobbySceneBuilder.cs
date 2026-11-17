@@ -1,4 +1,6 @@
+using System.IO;
 using System.Linq;
+using IPZ.AirHockey;
 using IPZ.Tracking;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -20,6 +22,7 @@ namespace IPZ.Lobby
             ("Gracze: 2", MenuAction.Players, false),
             ("Jak grać", MenuAction.HowToPlay, false),
             ("Test dłoni", MenuAction.HandCheck, false),
+            ("Kamery", MenuAction.Cameras, false),
             ("Dźwięk: włączony", MenuAction.Sound, false),
             ("Pełny ekran", MenuAction.Fullscreen, false),
             ("O projekcie", MenuAction.About, false),
@@ -27,7 +30,7 @@ namespace IPZ.Lobby
         };
 
         static Font font;
-        static Material buttonMaterial, panelMaterial, floorMaterial, cursorMaterial;
+        static Material buttonMaterial, panelMaterial, floorMaterial, cursorMaterial, screenMaterial, frameMaterial;
 
         [MenuItem("IPZ/Rebuild Lobby Scene")]
         public static void Build()
@@ -40,6 +43,9 @@ namespace IPZ.Lobby
             panelMaterial = GetMaterial("Panel", new Color(0.11f, 0.13f, 0.18f), 0.2f);
             floorMaterial = GetMaterial("Floor", new Color(0.05f, 0.06f, 0.09f), 0.2f);
             cursorMaterial = GetMaterial("Cursor", Color.white, 0.5f);
+            screenMaterial = GetMaterial("CameraScreen", Color.white, 0f, "Universal Render Pipeline/Unlit");
+            screenMaterial.SetTexture("_BaseMap", GetNoSignalTexture());
+            frameMaterial = GetMaterial("CameraFrame", new Color(0.03f, 0.04f, 0.06f), 0.1f);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             RenderSettings.ambientMode = AmbientMode.Flat;
@@ -51,6 +57,7 @@ namespace IPZ.Lobby
             var menu = new GameObject("Lobby");
             menu.AddComponent<HandTrackingReceiver>();
             menu.AddComponent<HandPointer>();
+            var cameraSettings = menu.AddComponent<CameraSettingsPanel>();
             var lobby = menu.AddComponent<LobbyMenu>();
 
             MakeText(menu.transform, "Title", "Gesture Air Hockey", 2.6f, new Vector3(0f, 4.55f, 0f), Color.white, FontStyle.Bold);
@@ -65,6 +72,7 @@ namespace IPZ.Lobby
             var buttons = Items.Select(i => MakeButton(wheel, i.text, i.action, i.primary, new Vector3(5.8f, 1.05f, 0.5f))).ToArray();
 
             var panel = BuildPanel(menu.transform, out var infoTitle, out var infoBody, out var back);
+            BuildCameraPanel(menu.transform, cameraSettings);
 
             var cursor = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             cursor.name = "HandCursor";
@@ -145,7 +153,100 @@ namespace IPZ.Lobby
             return panel;
         }
 
-        static MenuButton3D MakeButton(Transform parent, string text, MenuAction action, bool primary, Vector3 size)
+        static void BuildCameraPanel(Transform parent, CameraSettingsPanel settings)
+        {
+            var panel = new GameObject("CameraPanel");
+            panel.transform.SetParent(parent);
+            panel.transform.localPosition = new Vector3(0f, -1f, -0.5f);
+
+            var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            board.name = "Board";
+            board.transform.SetParent(panel.transform, false);
+            board.transform.localScale = new Vector3(17f, 7.8f, 0.3f);
+            Object.DestroyImmediate(board.GetComponent<Collider>());
+            board.GetComponent<Renderer>().sharedMaterial = panelMaterial;
+
+            MakeText(panel.transform, "Title", "Kamery", 1.3f, new Vector3(-6.2f, 3.3f, -0.2f), Color.white, FontStyle.Bold);
+            var back = MakeButton(panel.transform, "Wstecz", MenuAction.Back, true, new Vector3(2.8f, 0.8f, 0.4f), 0.9f);
+            back.transform.localPosition = new Vector3(6.6f, 3.3f, -0.35f);
+
+            var xy = BuildCameraColumn(panel.transform, -4.2f, "XY", "widok z przodu", 5053,
+                MenuAction.CameraXYPrev, MenuAction.CameraXYNext, out var xyScreen, out var xyLabel, out _);
+            var z = BuildCameraColumn(panel.transform, 4.2f, "Z", "głębokość naciśnięcia", 5054,
+                MenuAction.CameraZPrev, MenuAction.CameraZNext, out var zScreen, out var zLabel, out var zPlaceholder);
+
+            var scan = MakeButton(panel.transform, "Szukaj kamer", MenuAction.CameraScan, false, new Vector3(3.6f, 0.75f, 0.4f), 0.85f);
+            scan.transform.localPosition = new Vector3(-4.2f, -2.75f, -0.35f);
+            var flip = MakeButton(panel.transform, "Kierunek: →", MenuAction.CameraZFlip, false, new Vector3(3.6f, 0.75f, 0.4f), 0.85f);
+            flip.transform.localPosition = new Vector3(4.2f, -2.75f, -0.35f);
+
+            var status = MakeText(panel.transform, "Status", "", 0.8f, new Vector3(0f, 3.3f, -0.2f), Color.white);
+
+            var so = new SerializedObject(settings);
+            so.FindProperty("panel").objectReferenceValue = panel;
+            so.FindProperty("xyLabel").objectReferenceValue = xyLabel;
+            so.FindProperty("zLabel").objectReferenceValue = zLabel;
+            so.FindProperty("zPlaceholder").objectReferenceValue = zPlaceholder;
+            so.FindProperty("statusText").objectReferenceValue = status;
+            so.FindProperty("xyScreen").objectReferenceValue = xyScreen;
+            so.FindProperty("zScreen").objectReferenceValue = zScreen;
+            so.FindProperty("flipButton").objectReferenceValue = flip;
+            var buttons = xy.Concat(z).Append(scan).Append(flip).Append(back).ToArray();
+            var list = so.FindProperty("buttons");
+            list.arraySize = buttons.Length;
+            for (int i = 0; i < buttons.Length; i++)
+                list.GetArrayElementAtIndex(i).objectReferenceValue = buttons[i];
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            panel.SetActive(false);
+        }
+
+        static MenuButton3D[] BuildCameraColumn(Transform parent, float x, string axis, string caption, int previewPort,
+            MenuAction prev, MenuAction next, out GameObject screen, out TextMesh label, out TextMesh placeholder)
+        {
+            var column = new GameObject($"Camera {axis}").transform;
+            column.SetParent(parent, false);
+            column.localPosition = new Vector3(x, 0f, 0f);
+
+            var axisText = MakeText(column, "Axis", axis, 1.4f, new Vector3(-2.3f, 2.45f, -0.2f), new Color(0.40f, 0.70f, 1f), FontStyle.Bold);
+            axisText.anchor = TextAnchor.MiddleLeft;
+            var captionText = MakeText(column, "Caption", caption, 0.8f, new Vector3(axis.Length > 1 ? -0.9f : -1.5f, 2.4f, -0.2f), new Color(0.75f, 0.78f, 0.84f));
+            captionText.anchor = TextAnchor.MiddleLeft;
+
+            var frame = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            frame.name = "Frame";
+            Object.DestroyImmediate(frame.GetComponent<Collider>());
+            frame.transform.SetParent(column, false);
+            frame.transform.localPosition = new Vector3(0f, 0.35f, -0.2f);
+            frame.transform.localScale = new Vector3(4.8f, 3.6f, 0.1f);
+            frame.GetComponent<Renderer>().sharedMaterial = frameMaterial;
+
+            screen = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            screen.name = "Preview";
+            Object.DestroyImmediate(screen.GetComponent<Collider>());
+            screen.transform.SetParent(column, false);
+            screen.transform.localPosition = new Vector3(0f, 0.35f, -0.3f);
+            screen.transform.localScale = new Vector3(4.4f, 3.3f, 1f);
+            var renderer = screen.GetComponent<Renderer>();
+            renderer.sharedMaterial = screenMaterial;
+            var thumbnail = screen.AddComponent<CameraThumbnail>();
+            var thumbnailSo = new SerializedObject(thumbnail);
+            thumbnailSo.FindProperty("port").intValue = previewPort;
+            thumbnailSo.FindProperty("screen").objectReferenceValue = renderer;
+            thumbnailSo.ApplyModifiedPropertiesWithoutUndo();
+
+            placeholder = MakeText(column, "Placeholder", "", 0.8f, new Vector3(0f, 0.35f, -0.35f), new Color(0.62f, 0.66f, 0.74f));
+
+            var left = MakeButton(column, "<", prev, false, new Vector3(1f, 0.75f, 0.4f), 1f);
+            left.transform.localPosition = new Vector3(-1.9f, -1.8f, -0.35f);
+            var right = MakeButton(column, ">", next, false, new Vector3(1f, 0.75f, 0.4f), 1f);
+            right.transform.localPosition = new Vector3(1.9f, -1.8f, -0.35f);
+            label = MakeText(column, "Selected", "", 0.9f, new Vector3(0f, -1.8f, -0.3f), Color.white);
+            return new[] { left, right };
+        }
+
+        static MenuButton3D MakeButton(Transform parent, string text, MenuAction action, bool primary, Vector3 size,
+            float labelSize = 1.25f)
         {
             var root = new GameObject(text);
             root.transform.SetParent(parent, false);
@@ -160,7 +261,7 @@ namespace IPZ.Lobby
             var renderer = body.GetComponent<Renderer>();
             renderer.sharedMaterial = buttonMaterial;
 
-            var label = MakeText(visual, "Label", text, 1.25f, new Vector3(0f, 0f, -size.z * 0.5f - 0.02f), Color.white,
+            var label = MakeText(visual, "Label", text, labelSize, new Vector3(0f, 0f, -size.z * 0.5f - 0.02f), Color.white,
                 primary ? FontStyle.Bold : FontStyle.Normal);
 
             var button = root.AddComponent<MenuButton3D>();
@@ -199,7 +300,7 @@ namespace IPZ.Lobby
             return mesh;
         }
 
-        static Material GetMaterial(string name, Color color, float smoothness)
+        static Material GetMaterial(string name, Color color, float smoothness, string shader = "Universal Render Pipeline/Lit")
         {
             if (!AssetDatabase.IsValidFolder(MaterialFolder))
                 AssetDatabase.CreateFolder("Assets/Lobby", "Materials");
@@ -208,13 +309,27 @@ namespace IPZ.Lobby
             var material = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (material == null)
             {
-                material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                material = new Material(Shader.Find(shader));
                 AssetDatabase.CreateAsset(material, path);
             }
             material.SetColor("_BaseColor", color);
             material.SetFloat("_Smoothness", smoothness);
             EditorUtility.SetDirty(material);
             return material;
+        }
+
+        static Texture2D GetNoSignalTexture()
+        {
+            var path = $"{MaterialFolder}/NoSignal.png";
+            var texture = new Texture2D(4, 4, TextureFormat.RGB24, false);
+            var pixels = new Color[16];
+            for (int i = 0; i < pixels.Length; i++)
+                pixels[i] = new Color(0.07f, 0.08f, 0.11f);
+            texture.SetPixels(pixels);
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            Object.DestroyImmediate(texture);
+            AssetDatabase.ImportAsset(path);
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
         }
 
         static void AddToBuildSettings()

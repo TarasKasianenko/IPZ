@@ -19,16 +19,23 @@ namespace IPZ.Lobby
         [SerializeField, Tooltip("Keeps the pointer alive through brief detection dropouts.")]
         float lostHandGraceSeconds = 0.2f;
         [SerializeField] float cameraAspect = 4f / 3f;
+        [SerializeField] float depthPlane = 0.5f;
+        [SerializeField] float depthHysteresis = 0.03f;
+
+        public const string DepthFlipKey = "ipz.camera.zflip";
 
         readonly Vector3[] points = new Vector3[HandTrackingReceiver.LandmarkCount];
         HandTrackingReceiver receiver;
         float lastSeenAt = float.NegativeInfinity;
         bool hasPosition;
+        int activeHand;
 
         /// Pointer position, 0..1 on both axes, with the origin at the bottom left.
         public Vector2 Position { get; private set; }
         public bool IsVisible { get; private set; }
-        public bool IsPinching { get; private set; }
+        public bool IsPressing { get; private set; }
+        public bool UsesDepth { get; private set; }
+        public bool DepthFlipped { get; set; }
         public bool IsReceiving => receiver.IsReceiving;
 
         public bool IsHandPresent(int hand) => receiver.TryGetHand(hand, points);
@@ -36,6 +43,7 @@ namespace IPZ.Lobby
         void Awake()
         {
             receiver = GetComponent<HandTrackingReceiver>();
+            DepthFlipped = PlayerPrefs.GetInt(DepthFlipKey, 0) == 1;
             // The tracker preview window usually has focus, and Unity would otherwise stop updating.
             Application.runInBackground = true;
         }
@@ -46,13 +54,17 @@ namespace IPZ.Lobby
             {
                 lastSeenAt = Time.unscaledTime;
                 UpdatePosition();
-                UpdatePinch();
+                if (receiver.TryGetDepth(activeHand, out float depth))
+                    UpdateDepthPress(depth);
+                else
+                    UpdatePinch();
                 IsVisible = true;
             }
             else if (Time.unscaledTime - lastSeenAt > lostHandGraceSeconds)
             {
                 IsVisible = false;
-                IsPinching = false;
+                IsPressing = false;
+                UsesDepth = false;
                 hasPosition = false;
             }
         }
@@ -60,8 +72,13 @@ namespace IPZ.Lobby
         bool TryReadFirstHand()
         {
             for (int hand = 0; hand < MaxTrackedHands; hand++)
+            {
                 if (receiver.TryGetHand(hand, points))
+                {
+                    activeHand = hand;
                     return true;
+                }
+            }
             return false;
         }
 
@@ -75,14 +92,26 @@ namespace IPZ.Lobby
             hasPosition = true;
         }
 
+        void UpdateDepthPress(float depth)
+        {
+            if (!UsesDepth)
+                IsPressing = false;
+            UsesDepth = true;
+            float past = DepthFlipped ? depthPlane - depth : depth - depthPlane;
+            IsPressing = past > (IsPressing ? -depthHysteresis : depthHysteresis);
+        }
+
         void UpdatePinch()
         {
+            if (UsesDepth)
+                IsPressing = false;
+            UsesDepth = false;
             float handSize = Distance(points[Wrist], points[MiddleKnuckle]);
             if (handSize < 1e-4f)
                 return;
 
             float ratio = Distance(points[ThumbTip], points[IndexTip]) / handSize;
-            IsPinching = ratio < (IsPinching ? pinchReleaseRatio : pinchPressRatio);
+            IsPressing = ratio < (IsPressing ? pinchReleaseRatio : pinchPressRatio);
         }
 
         float Remap(float value) => Mathf.Clamp01((value - edgeMargin) / (1f - 2f * edgeMargin));

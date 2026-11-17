@@ -2,7 +2,11 @@ using UnityEngine;
 
 namespace IPZ.Lobby
 {
-    public enum MenuAction { Play, Players, HowToPlay, HandCheck, Sound, Fullscreen, About, Quit, Back }
+    public enum MenuAction
+    {
+        Play, Players, HowToPlay, HandCheck, Sound, Fullscreen, About, Quit, Back,
+        Cameras, CameraXYPrev, CameraXYNext, CameraZPrev, CameraZNext, CameraZFlip, CameraScan,
+    }
 
     /// A physical menu button: a block with a label that lights up on hover and sinks when pressed.
     public class MenuButton3D : MonoBehaviour
