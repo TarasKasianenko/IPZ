@@ -41,6 +41,7 @@ CAPTURE_SIZE = (640, 480)
 CAPTURE_FPS = 30
 NON_COLOUR_FORMATS = {"Z16 ", "GREY", "Y8  ", "Y8I ", "Y12I", "Y16 "}
 STALE_AFTER = 1.0
+OPEN_ATTEMPTS = 5
 REALSENSE_BASE = 100
 REALSENSE_MODES = ((640, 480, 30), (640, 480, 15), (0, 0, 0))
 REALSENSE_TIMEOUT_MS = 1000
@@ -120,13 +121,18 @@ def try_open_camera(index, strict=False):
     if not strict or not backends:
         backends.append(cv2.CAP_ANY)
     for backend in backends:
-        cap = cv2.VideoCapture(index, backend)
-        if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_SIZE[0])
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_SIZE[1])
-            cap.set(cv2.CAP_PROP_FPS, CAPTURE_FPS)
-            return cap
-        cap.release()
+        for sized in (True, False):
+            cap = cv2.VideoCapture(index, backend)
+            if not cap.isOpened():
+                cap.release()
+                break
+            if sized:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_SIZE[0])
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_SIZE[1])
+                cap.set(cv2.CAP_PROP_FPS, CAPTURE_FPS)
+            if any(cap.read()[0] for _ in range(OPEN_ATTEMPTS)):
+                return cap
+            cap.release()
     return None
 
 
@@ -172,9 +178,20 @@ class Grabber:
 
 def open_camera(index):
     cap = try_open_camera(index)
+    if cap is not None and fourcc(cap) in NON_COLOUR_FORMATS:
+        cap.release()
+        cap = None
     if cap is None:
+        for other in candidate_indexes():
+            if other == index or (cap := try_open_camera(other, strict=True)) is None:
+                continue
+            if fourcc(cap) in NON_COLOUR_FORMATS:
+                cap.release()
+                continue
+            print(f"Camera {index} gives no frames, using camera {other}", flush=True)
+            return Grabber(cap), other
         raise SystemExit(f"Cannot open camera {index}. Is it in use, or blocked in the system privacy settings?")
-    return Grabber(cap)
+    return Grabber(cap), index
 
 
 def is_realsense_node(index):
@@ -214,15 +231,14 @@ def save_config(p1, p2):
 class Cameras:
     def __init__(self, p1, p2):
         self.lock = threading.Lock()
-        self.p1 = p1
         self.p2 = -1
-        self.p1_cap = open_camera(p1)
+        self.p1_cap, self.p1 = open_camera(p1)
         self.p2_cap = None
-        self.available = [p1]
+        self.available = [self.p1]
         self.error = ""
         self.pending = None
         self.scanning = False
-        if p2 >= 0 and p2 != p1:
+        if p2 >= 0 and p2 != self.p1:
             self.switch_p2(p2)
 
     def request(self, p1, p2):

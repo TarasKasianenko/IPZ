@@ -19,6 +19,7 @@ uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 if errorlevel 1 goto failed
 
 :run
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 where uv >nul 2>nul && uv pip install -q --python .venv\Scripts\python.exe -r requirements.txt
 ".venv\Scripts\python.exe" tracker.py --show %*
 if errorlevel 1 pause
