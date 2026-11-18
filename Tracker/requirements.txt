@@ -1,1 +1,2 @@
 mediapipe==1.1.1
+pyrealsense2==2.59.2.11152; sys_platform == "win32" or (sys_platform == "linux" and platform_machine == "x86_64")

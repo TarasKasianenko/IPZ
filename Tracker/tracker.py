@@ -16,6 +16,12 @@ import mediapipe as mp
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python import vision
 
+try:
+    import numpy as np
+    import pyrealsense2 as rs
+except ImportError:
+    rs = None
+
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 MODEL_PATH = Path(__file__).with_name("hand_landmarker.task")
 CONFIG_PATH = Path(__file__).with_name("cameras.json")
@@ -31,6 +37,13 @@ CAMERA_BACKENDS = {
     "darwin": ("CAP_AVFOUNDATION",),
 }
 PROBE_RANGE = 6
+CAPTURE_SIZE = (640, 480)
+CAPTURE_FPS = 30
+NON_COLOUR_FORMATS = {"Z16 ", "GREY", "Y8  ", "Y8I ", "Y12I", "Y16 "}
+STALE_AFTER = 1.0
+REALSENSE_BASE = 100
+REALSENSE_MODES = ((640, 480, 30), (640, 480, 15), (0, 0, 0))
+REALSENSE_TIMEOUT_MS = 1000
 
 
 def ensure_model():
@@ -40,7 +53,68 @@ def ensure_model():
     return str(MODEL_PATH)
 
 
+def realsense_serials():
+    if rs is None:
+        return []
+    try:
+        devices = rs.context().query_devices()
+        return sorted(d.get_info(rs.camera_info.serial_number) for d in devices
+                      if any(s.is_color_sensor() for s in d.query_sensors()))
+    except RuntimeError:
+        return []
+
+
+class RealSenseCapture:
+    def __init__(self, serial):
+        self.pipeline = None
+        for width, height, fps in REALSENSE_MODES:
+            config = rs.config()
+            config.enable_device(serial)
+            config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
+            pipeline = rs.pipeline()
+            try:
+                pipeline.start(config)
+            except RuntimeError:
+                continue
+            self.pipeline = pipeline
+            break
+
+    def isOpened(self):
+        return self.pipeline is not None
+
+    def read(self):
+        if self.pipeline is None:
+            return False, None
+        try:
+            ok, frames = self.pipeline.try_wait_for_frames(REALSENSE_TIMEOUT_MS)
+        except RuntimeError:
+            return False, None
+        colour = frames.get_color_frame() if ok else None
+        if not colour:
+            return False, None
+        return True, np.asanyarray(colour.get_data()).copy()
+
+    def release(self):
+        if self.pipeline is not None:
+            try:
+                self.pipeline.stop()
+            except RuntimeError:
+                pass
+            self.pipeline = None
+
+
+def open_realsense(index):
+    serials = realsense_serials()
+    position = index - REALSENSE_BASE
+    if not 0 <= position < len(serials):
+        return None
+    cap = RealSenseCapture(serials[position])
+    return cap if cap.isOpened() else None
+
+
 def try_open_camera(index, strict=False):
+    if index >= REALSENSE_BASE:
+        return open_realsense(index)
     names = CAMERA_BACKENDS.get(sys.platform, ())
     backends = [getattr(cv2, name) for name in names]
     if not strict or not backends:
@@ -48,24 +122,78 @@ def try_open_camera(index, strict=False):
     for backend in backends:
         cap = cv2.VideoCapture(index, backend)
         if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_SIZE[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_SIZE[1])
+            cap.set(cv2.CAP_PROP_FPS, CAPTURE_FPS)
             return cap
         cap.release()
     return None
+
+
+def fourcc(cap):
+    if isinstance(cap, RealSenseCapture):
+        return "BGR3"
+    return int(cap.get(cv2.CAP_PROP_FOURCC)).to_bytes(4, "little").decode("ascii", "replace")
+
+
+class Grabber:
+    def __init__(self, cap):
+        self.cap = cap
+        self.frame = None
+        self.stamp = 0.0
+        self.fresh = threading.Event()
+        self.running = True
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        try:
+            while self.running:
+                ok, frame = self.cap.read()
+                if not ok:
+                    time.sleep(0.05)
+                    continue
+                self.frame, self.stamp = frame, time.monotonic()
+                self.fresh.set()
+        finally:
+            self.cap.release()
+
+    def get(self, wait=0.0):
+        if wait > 0:
+            if not self.fresh.wait(wait):
+                return None
+            self.fresh.clear()
+        if self.frame is None or time.monotonic() - self.stamp > STALE_AFTER:
+            return None
+        return self.frame
+
+    def release(self):
+        self.running = False
 
 
 def open_camera(index):
     cap = try_open_camera(index)
     if cap is None:
         raise SystemExit(f"Cannot open camera {index}. Is it in use, or blocked in the system privacy settings?")
-    return cap
+    return Grabber(cap)
+
+
+def is_realsense_node(index):
+    try:
+        return "RealSense" in Path(f"/sys/class/video4linux/video{index}/name").read_text()
+    except OSError:
+        return False
 
 
 def candidate_indexes():
+    serials = realsense_serials()
+    extra = [REALSENSE_BASE + i for i in range(len(serials))]
     if sys.platform == "linux":
         found = sorted(int(m.group(1)) for p in glob.glob("/dev/video*") if (m := re.fullmatch(r"/dev/video(\d+)", p)))
-        if found:
-            return found
-    return list(range(PROBE_RANGE))
+        if serials:
+            found = [i for i in found if not is_realsense_node(i)]
+        if found or extra:
+            return found + extra
+    return list(range(PROBE_RANGE)) + extra
 
 
 def load_config():
@@ -124,7 +252,7 @@ class Cameras:
             self.error = f"Nie można otworzyć kamery {index}"
             return
         self.p1_cap.release()
-        self.p1_cap, self.p1 = cap, index
+        self.p1_cap, self.p1 = Grabber(cap), index
 
     def switch_p2(self, index):
         self.close_p2()
@@ -134,7 +262,7 @@ class Cameras:
         if cap is None:
             self.error = f"Nie można otworzyć kamery {index}"
             return
-        self.p2_cap, self.p2 = cap, index
+        self.p2_cap, self.p2 = Grabber(cap), index
 
     def close_p2(self):
         if self.p2_cap is not None:
@@ -157,7 +285,7 @@ class Cameras:
             cap = try_open_camera(index, strict=True)
             if cap is None:
                 continue
-            ok, _ = cap.read()
+            ok = fourcc(cap) not in NON_COLOUR_FORMATS and cap.read()[0]
             cap.release()
             if ok:
                 found.append(index)
@@ -329,11 +457,11 @@ def main():
             num_hands=hands,
         ))
 
-    def read(cap):
-        ok, frame = cap.read()
-        if not ok:
+    def read(grabber, wait=0.0):
+        frame = grabber.get(wait)
+        if frame is None:
             return None
-        return cv2.flip(frame, 1) if mirrored else frame
+        return cv2.flip(frame, 1) if mirrored else frame.copy()
 
     cameras = Cameras(p1, p2)
     cameras.scan()
@@ -355,9 +483,8 @@ def main():
         try:
             while True:
                 cameras.apply_pending()
-                first = read(cameras.p1_cap)
+                first = read(cameras.p1_cap, wait=1.0)
                 if first is None:
-                    time.sleep(0.05)
                     continue
                 timestamp_ms = int((time.monotonic() - start) * 1000)
                 first_result = first_landmarker.detect_for_video(to_image(first), timestamp_ms)

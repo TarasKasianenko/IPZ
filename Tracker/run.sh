@@ -12,6 +12,10 @@ if [ ! -x .venv/bin/python ]; then
         .venv/bin/pip install -r requirements.txt
     fi
     trap - ERR
+elif command -v uv >/dev/null; then
+    uv pip install -q --python .venv/bin/python -r requirements.txt || true
+else
+    .venv/bin/pip install -q -r requirements.txt || true
 fi
 
 exec .venv/bin/python tracker.py --show "$@"
