@@ -43,7 +43,7 @@ NON_COLOUR_FORMATS = {"Z16 ", "GREY", "Y8  ", "Y8I ", "Y12I", "Y16 "}
 STALE_AFTER = 1.0
 OPEN_ATTEMPTS = 5
 REALSENSE_BASE = 100
-REALSENSE_MODES = ((640, 480, 30), (640, 480, 15), (0, 0, 0))
+REALSENSE_MODES = ((640, 480, 60), (640, 480, 30), (640, 480, 15), (0, 0, 0))
 REALSENSE_TIMEOUT_MS = 1000
 
 
@@ -78,7 +78,18 @@ class RealSenseCapture:
             except RuntimeError:
                 continue
             self.pipeline = pipeline
+            if fps >= 60:
+                self._keep_frame_rate(pipeline)
             break
+
+    @staticmethod
+    def _keep_frame_rate(pipeline):
+        for sensor in pipeline.get_active_profile().get_device().query_sensors():
+            if sensor.is_color_sensor() and sensor.supports(rs.option.auto_exposure_priority):
+                try:
+                    sensor.set_option(rs.option.auto_exposure_priority, 0)
+                except RuntimeError:
+                    pass
 
     def isOpened(self):
         return self.pipeline is not None
