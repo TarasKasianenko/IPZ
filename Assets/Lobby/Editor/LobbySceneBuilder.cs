@@ -58,36 +58,40 @@ namespace IPZ.Lobby
             RenderSettings.ambientLight = new Color(0.42f, 0.46f, 0.56f);
 
             var camera = BuildCamera();
-            BuildEnvironment();
             NeonStyle.AddBloom();
 
             var menu = new GameObject("Lobby");
             menu.AddComponent<HandTrackingReceiver>();
             menu.AddComponent<HandPointer>();
             var cameraSettings = menu.AddComponent<CameraSettingsPanel>();
+            var attract = menu.AddComponent<AttractMode>();
             var lobby = menu.AddComponent<LobbyMenu>();
 
-            var title = MakeText(menu.transform, "Title", "Gesture Games", 2.6f, new Vector3(0.9f, 4.55f, 0f), Color.white, FontStyle.Bold);
+            var menuRoot = new GameObject("Menu");
+            menuRoot.transform.SetParent(menu.transform, false);
+            BuildEnvironment(menuRoot.transform);
+
+            var title = MakeText(menuRoot.transform, "Title", "Gesture Games", 2.6f, new Vector3(0.9f, 4.55f, 0f), Color.white, FontStyle.Bold);
             title.GetComponent<MeshRenderer>().sharedMaterial = NeonStyle.NeonText(MaterialFolder, font, Color.white, 1.5f);
-            NeonStyle.Logo(menu.transform, new Vector3(-6.1f, 4.55f, 0f), 1.45f);
-            NeonStyle.GlowQuad("Underline Green", menu.transform, new Vector3(-1.8f, 3.98f, 0f), new Vector2(5.35f, 0.07f), greenGlow);
-            NeonStyle.GlowQuad("Underline Blue", menu.transform, new Vector3(3.6f, 3.98f, 0f), new Vector2(5.35f, 0.07f), blueGlow);
-            var status = MakeText(menu.transform, "Status", "", 1f, new Vector3(0f, 3.5f, 0f), Color.white);
+            NeonStyle.Logo(menuRoot.transform, new Vector3(-6.1f, 4.55f, 0f), 1.45f);
+            NeonStyle.GlowQuad("Underline Green", menuRoot.transform, new Vector3(-1.8f, 3.98f, 0f), new Vector2(5.35f, 0.07f), greenGlow);
+            NeonStyle.GlowQuad("Underline Blue", menuRoot.transform, new Vector3(3.6f, 3.98f, 0f), new Vector2(5.35f, 0.07f), blueGlow);
+            var status = MakeText(menuRoot.transform, "Status", "", 1f, new Vector3(0f, 3.5f, 0f), Color.white);
             var hint = "Złącz palce, aby nacisnąć. Trzymaj złączone i przesuwaj, aby przewijać.";
-            MakeText(menu.transform, "Hint", hint, 0.8f, new Vector3(0f, -5.25f, 0f), ZutColors.Muted);
-            var toast = MakeText(menu.transform, "Toast", "", 0.8f, new Vector3(0f, 2.4f, -1.5f), ZutColors.Red);
+            MakeText(menuRoot.transform, "Hint", hint, 0.8f, new Vector3(0f, -5.25f, 0f), ZutColors.Muted);
+            var toast = MakeText(menuRoot.transform, "Toast", "", 0.8f, new Vector3(0f, 2.4f, -1.5f), ZutColors.Red);
 
             var wheel = new GameObject("Wheel").transform;
-            wheel.SetParent(menu.transform);
+            wheel.SetParent(menuRoot.transform);
             wheel.localPosition = new Vector3(0f, -0.6f, 0f);
             var buttons = Items.Select(i => MakeButton(wheel, i.text, i.action, i.primary, new Vector3(5.8f, 1.05f, 0.5f), 1.02f)).ToArray();
 
-            var panel = BuildPanel(menu.transform, out var infoTitle, out var infoBody, out var back);
-            BuildCameraPanel(menu.transform, cameraSettings);
+            var panel = BuildPanel(menuRoot.transform, out var infoTitle, out var infoBody, out var back);
+            BuildCameraPanel(menuRoot.transform, cameraSettings);
 
             var cursor = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             cursor.name = "HandCursor";
-            cursor.transform.SetParent(menu.transform);
+            cursor.transform.SetParent(menuRoot.transform);
             cursor.transform.localScale = Vector3.one * 0.28f;
             Object.DestroyImmediate(cursor.GetComponent<Collider>());
             cursor.GetComponent<Renderer>().sharedMaterial = cursorMaterial;
@@ -109,6 +113,8 @@ namespace IPZ.Lobby
                 list.GetArrayElementAtIndex(i).objectReferenceValue = buttons[i];
             so.ApplyModifiedPropertiesWithoutUndo();
 
+            BuildAttract(menu.transform, attract, camera, menuRoot);
+
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddToBuildSettings();
             AssetDatabase.SaveAssets();
@@ -126,7 +132,7 @@ namespace IPZ.Lobby
             return camera;
         }
 
-        static void BuildEnvironment()
+        static void BuildEnvironment(Transform parent)
         {
             var lightObject = new GameObject("Directional Light");
             lightObject.transform.rotation = Quaternion.Euler(45f, -25f, 0f);
@@ -137,6 +143,7 @@ namespace IPZ.Lobby
 
             var floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
             floor.name = "Floor";
+            floor.transform.SetParent(parent);
             floor.transform.position = new Vector3(0f, -5.4f, 10f);
             floor.transform.localScale = new Vector3(6f, 1f, 6f);
             Object.DestroyImmediate(floor.GetComponent<Collider>());
@@ -144,10 +151,78 @@ namespace IPZ.Lobby
 
             for (int i = -3; i <= 3; i++)
             {
-                var line = NeonStyle.GlowQuad($"Floor Line {i}", null, new Vector3(i * 4f, -5.38f, 14f), new Vector2(0.05f, 40f),
+                var line = NeonStyle.GlowQuad($"Floor Line {i}", parent, new Vector3(i * 4f, -5.38f, 14f), new Vector2(0.05f, 40f),
                     i < 0 ? greenGlow : i > 0 ? blueGlow : rimMaterial);
                 line.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             }
+        }
+
+        static void BuildAttract(Transform parent, AttractMode attract, Camera camera, GameObject menuRoot)
+        {
+            const float barWidth = 8f;
+            var root = new GameObject("Attract");
+            root.transform.SetParent(parent, false);
+
+            var title = MakeText(root.transform, "Title", "Gesture Games", 4f, new Vector3(0f, 1.2f, -1f), Color.white, FontStyle.Bold);
+            title.GetComponent<MeshRenderer>().sharedMaterial = NeonStyle.NeonText(MaterialFolder, font, Color.white, 1.5f);
+            NeonStyle.GlowQuad("Underline Green", root.transform, new Vector3(-3f, 0.2f, -1f), new Vector2(6f, 0.08f), greenGlow);
+            NeonStyle.GlowQuad("Underline Blue", root.transform, new Vector3(3f, 0.2f, -1f), new Vector2(6f, 0.08f), blueGlow);
+            var prompt = MakeText(root.transform, "Prompt", "", 1.1f, new Vector3(0f, -1.2f, -1f), Color.white);
+
+            NeonStyle.GlowQuad("Progress Track", root.transform, new Vector3(0f, -2.2f, -1f), new Vector2(barWidth, 0.06f), rimMaterial);
+            var fill = NeonStyle.GlowQuad("Progress Fill", root.transform, new Vector3(0f, -2.2f, -1.01f), new Vector2(0f, 0.16f), greenGlow);
+
+            var so = new SerializedObject(attract);
+            so.FindProperty("view").objectReferenceValue = camera;
+            so.FindProperty("menuRoot").objectReferenceValue = menuRoot;
+            so.FindProperty("attractRoot").objectReferenceValue = root;
+            so.FindProperty("prompt").objectReferenceValue = prompt;
+            so.FindProperty("progressFill").objectReferenceValue = fill.transform;
+            so.FindProperty("progressWidth").floatValue = barWidth;
+            so.FindProperty("backgroundMaterial").objectReferenceValue = UnlitMaterial("WaterBackground", false);
+            so.FindProperty("additiveMaterial").objectReferenceValue = UnlitMaterial("WaterAdditive", true);
+            so.FindProperty("eyeMaterial").objectReferenceValue = NeonStyle.Glow(MaterialFolder, "FishEye", Color.white, 1.3f);
+            var fish = new[]
+            {
+                NeonStyle.GlowLit(MaterialFolder, "FishGreen", ZutColors.Green, ZutColors.Green, 0.5f),
+                NeonStyle.GlowLit(MaterialFolder, "FishBlue", ZutColors.Blue, ZutColors.Blue, 0.5f),
+                NeonStyle.GlowLit(MaterialFolder, "FishCoral", new Color(1f, 0.45f, 0.2f), new Color(1f, 0.45f, 0.2f), 0.45f),
+            };
+            var fishList = so.FindProperty("fishMaterials");
+            fishList.arraySize = fish.Length;
+            for (int i = 0; i < fish.Length; i++)
+                fishList.GetArrayElementAtIndex(i).objectReferenceValue = fish[i];
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            root.SetActive(false);
+        }
+
+        static Material UnlitMaterial(string name, bool additive)
+        {
+            var path = $"{MaterialFolder}/{name}.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                AssetDatabase.CreateAsset(material, path);
+            }
+            material.shader = Shader.Find("Universal Render Pipeline/Unlit");
+            material.SetColor("_BaseColor", Color.white);
+            if (additive)
+            {
+                material.SetFloat("_Surface", 1f);
+                material.SetFloat("_Blend", 2f);
+                material.SetFloat("_SrcBlend", (float)BlendMode.One);
+                material.SetFloat("_DstBlend", (float)BlendMode.One);
+                material.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
+                material.SetFloat("_DstBlendAlpha", (float)BlendMode.One);
+                material.SetFloat("_ZWrite", 0f);
+                material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                material.SetOverrideTag("RenderType", "Transparent");
+                material.renderQueue = (int)RenderQueue.Transparent;
+            }
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         static GameObject BuildPanel(Transform parent, out TextMesh title, out TextMesh body, out MenuButton3D back)

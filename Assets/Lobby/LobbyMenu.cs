@@ -53,6 +53,7 @@ namespace IPZ.Lobby
         HandPointer hand;
         CameraSettingsPanel cameras;
         HandTrackingReceiver receiver;
+        AttractMode attract;
         MaterialPropertyBlock cursorBlock;
         float scroll, scrollVelocity, pressScroll, pressY, toastUntil;
         float mouseActiveUntil = float.NegativeInfinity;
@@ -71,6 +72,9 @@ namespace IPZ.Lobby
             hand = GetComponent<HandPointer>();
             cameras = GetComponent<CameraSettingsPanel>();
             receiver = GetComponent<HandTrackingReceiver>();
+            attract = GetComponent<AttractMode>();
+            if (attract != null)
+                attract.Started += ResetView;
             cursorBlock = new MaterialPropertyBlock();
             players = Mathf.Clamp(PlayerPrefs.GetInt(PlayersKey, 2), 1, 2);
             soundOn = PlayerPrefs.GetInt(SoundKey, 1) == 1;
@@ -89,6 +93,14 @@ namespace IPZ.Lobby
 
         void Update()
         {
+            if (attract != null && attract.IsActive)
+            {
+                pressedButton = null;
+                isDragging = false;
+                wasPressed = true;
+                return;
+            }
+
             ReadPointer(out var viewport, out bool pressed, out bool cursorVisible);
             Physics.SyncTransforms();
             HandlePointer(viewport, pressed);
@@ -326,6 +338,16 @@ namespace IPZ.Lobby
                     cameras.Handle(button.Action);
                     break;
             }
+        }
+
+        void ResetView()
+        {
+            infoPanel.SetActive(false);
+            cameras.Close();
+            handCheckOpen = false;
+            scroll = MinScroll;
+            scrollVelocity = 0f;
+            PlayerPrefs.Save();
         }
 
         void OpenInfo(string title, string body)
