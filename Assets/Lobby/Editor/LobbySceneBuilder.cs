@@ -179,19 +179,12 @@ namespace IPZ.Lobby
             so.FindProperty("prompt").objectReferenceValue = prompt;
             so.FindProperty("progressFill").objectReferenceValue = fill.transform;
             so.FindProperty("progressWidth").floatValue = barWidth;
-            so.FindProperty("backgroundMaterial").objectReferenceValue = UnlitMaterial("WaterBackground", false);
-            so.FindProperty("additiveMaterial").objectReferenceValue = UnlitMaterial("WaterAdditive", true);
-            so.FindProperty("eyeMaterial").objectReferenceValue = NeonStyle.Glow(MaterialFolder, "FishEye", Color.white, 1.3f);
-            var fish = new[]
-            {
-                NeonStyle.GlowLit(MaterialFolder, "FishGreen", ZutColors.Green, ZutColors.Green, 0.5f),
-                NeonStyle.GlowLit(MaterialFolder, "FishBlue", ZutColors.Blue, ZutColors.Blue, 0.5f),
-                NeonStyle.GlowLit(MaterialFolder, "FishCoral", new Color(1f, 0.45f, 0.2f), new Color(1f, 0.45f, 0.2f), 0.45f),
-            };
-            var fishList = so.FindProperty("fishMaterials");
-            fishList.arraySize = fish.Length;
-            for (int i = 0; i < fish.Length; i++)
-                fishList.GetArrayElementAtIndex(i).objectReferenceValue = fish[i];
+            so.FindProperty("backgroundMaterial").objectReferenceValue = UnlitMaterial("SpaceBackground", false);
+            so.FindProperty("additiveMaterial").objectReferenceValue = UnlitMaterial("SpaceAdditive", true);
+            so.FindProperty("asteroidMaterial").objectReferenceValue =
+                NeonStyle.GlowLit(MaterialFolder, "Asteroid", new Color(0.42f, 0.38f, 0.36f), ZutColors.Blue, 0.08f);
+            so.FindProperty("planetMaterial").objectReferenceValue =
+                NeonStyle.GlowLit(MaterialFolder, "Planet", Color.white, Color.white, 0.12f);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.SetActive(false);

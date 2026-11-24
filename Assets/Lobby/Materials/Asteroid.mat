@@ -7,12 +7,11 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: FishBlue
+  m_Name: Asteroid
   m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords:
-  - _EMISSION
+  m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 0
   m_EnableInstancingVariants: 0
@@ -119,13 +118,13 @@ Material:
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
-    - _BaseColor: {r: 0.11372549, g: 0.38431373, b: 0.8392157, a: 1}
-    - _Color: {r: 0.11372549, g: 0.38431373, b: 0.8392157, a: 1}
-    - _EmissionColor: {r: 0.09412884, g: 0.3332896, b: 0.7353569, a: 1}
+    - _BaseColor: {r: 0.42, g: 0.38, b: 0.36, a: 1}
+    - _Color: {r: 0.42, g: 0.38, b: 0.36, a: 1}
+    - _EmissionColor: {r: 0.018885331, g: 0.12594187, b: 0.31330413, a: 1}
     - _SpecColor: {r: 0.2, g: 0.2, b: 0.2, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
---- !u!114 &2132694669227019604
+--- !u!114 &789822694312038428
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}

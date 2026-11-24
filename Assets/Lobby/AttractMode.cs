@@ -13,20 +13,29 @@ namespace IPZ.Lobby
         static readonly int BaseMap = Shader.PropertyToID("_BaseMap");
         static bool startedOnce;
 
-        class Fish
-        {
-            public Transform root, tail;
-            public Vector3 velocity;
-            public float speed, phase, yaw, seed;
-        }
-
-        class Bubble
+        class Star
         {
             public Transform transform;
-            public float speed, size, seed;
+            public Renderer renderer;
+            public Vector3 push;
+            public Color color;
+            public float size, depth, seed;
         }
 
-        class Ripple
+        class Asteroid
+        {
+            public Transform transform;
+            public Vector3 velocity, spinAxis;
+            public float speed, spin;
+        }
+
+        class Planet
+        {
+            public Transform transform;
+            public float spin;
+        }
+
+        class Ring
         {
             public Transform transform;
             public Renderer renderer;
@@ -44,28 +53,30 @@ namespace IPZ.Lobby
         [Header("Materials")]
         [SerializeField] Material backgroundMaterial;
         [SerializeField] Material additiveMaterial;
-        [SerializeField] Material[] fishMaterials;
-        [SerializeField] Material eyeMaterial;
-        [SerializeField] Color deepColor = new Color(0.01f, 0.04f, 0.12f);
-        [SerializeField] Color shallowColor = new Color(0.03f, 0.25f, 0.4f);
+        [SerializeField] Material asteroidMaterial;
+        [SerializeField] Material planetMaterial;
+        [SerializeField] Color spaceColor = new Color(0.005f, 0.01f, 0.035f);
+        [SerializeField] Color nebulaA = new Color(0.35f, 0.08f, 0.45f);
+        [SerializeField] Color nebulaB = new Color(0.02f, 0.25f, 0.45f);
 
         [Header("Timing")]
         [SerializeField] float wakeSeconds = 1.2f;
         [SerializeField] float idleSeconds = 45f;
 
-        [Header("Fish")]
-        [SerializeField] int fishCount = 16;
-        [SerializeField] Vector2 halfExtents = new Vector2(10f, 5.2f);
-        [SerializeField] float swimSpeed = 1.4f;
-        [SerializeField] float fleeRadius = 3.5f;
-        [SerializeField] float fleeSpeed = 7f;
-        [SerializeField] float feedRadius = 7f;
+        [Header("Space")]
+        [SerializeField] Vector2 halfExtents = new Vector2(11f, 6.2f);
+        [SerializeField] int starCount = 160;
+        [SerializeField] int asteroidCount = 10;
+        [SerializeField] float driftSpeed = 0.6f;
+        [SerializeField] float pushRadius = 3.5f;
+        [SerializeField] float pushStrength = 9f;
+        [SerializeField] float pullRadius = 6f;
+        [SerializeField] float shootingStarEvery = 4f;
 
-        [Header("Bubbles and ripples")]
-        [SerializeField] int bubbleCount = 40;
-        [SerializeField] int rippleCount = 14;
-        [SerializeField] float rippleSeconds = 1.4f;
-        [SerializeField] float rippleSpacing = 0.7f;
+        [Header("Shockwaves")]
+        [SerializeField] int ringCount = 14;
+        [SerializeField] float ringSeconds = 1.2f;
+        [SerializeField] float ringSpacing = 0.8f;
 
         [Header("Hands")]
         [SerializeField] float edgeMargin = 0.15f;
@@ -74,16 +85,21 @@ namespace IPZ.Lobby
         readonly Vector3[] points = new Vector3[HandTrackingReceiver.LandmarkCount];
         readonly Vector3[] hands = new Vector3[HandTrackingReceiver.HandCount];
         readonly bool[] pinching = new bool[HandTrackingReceiver.HandCount];
-        readonly Vector3[] lastRippleAt = new Vector3[HandTrackingReceiver.HandCount];
+        readonly Vector3[] lastRingAt = new Vector3[HandTrackingReceiver.HandCount];
         HandTrackingReceiver receiver;
         MaterialPropertyBlock block;
-        Fish[] fish;
-        Bubble[] bubbles;
-        Ripple[] ripples;
-        Transform[] handGlows, rays;
-        Material causticsA, causticsB;
+        Star[] stars;
+        Asteroid[] asteroids;
+        Planet[] planets;
+        Ring[] rings;
+        Transform[] handGlows;
+        Transform shootingStar;
+        Renderer shootingStarRenderer;
+        Vector3 shootingStarVelocity;
+        float shootingStarAge = float.PositiveInfinity, nextShootingStar;
+        Material nebulaNear, nebulaFar;
         Color promptColor;
-        int handCount, nextRipple;
+        int handCount, nextRing;
         float hold, lastActivity;
         Vector3 lastMouse;
 
@@ -97,10 +113,11 @@ namespace IPZ.Lobby
             promptColor = prompt.color;
             lastMouse = Input.mousePosition;
             lastActivity = Time.unscaledTime;
-            BuildWater();
-            SpawnFish();
-            SpawnBubbles();
-            SpawnRipplesAndGlows();
+            BuildSky();
+            SpawnPlanets();
+            SpawnStars();
+            SpawnAsteroids();
+            SpawnEffects();
             SetActive(!startedOnce);
             startedOnce = true;
         }
@@ -119,9 +136,10 @@ namespace IPZ.Lobby
                     return;
                 }
                 float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
-                UpdateWater();
-                UpdateFish(dt);
-                UpdateBubbles(dt);
+                UpdateSky(dt);
+                UpdateStars(dt);
+                UpdateAsteroids(dt);
+                UpdateShootingStar(dt);
                 UpdateHands(dt);
                 UpdatePrompt();
             }
@@ -168,133 +186,149 @@ namespace IPZ.Lobby
             return clicked || moved || Input.mouseScrollDelta.y != 0f;
         }
 
-        void BuildWater()
+        void BuildSky()
         {
             var background = new Material(backgroundMaterial);
-            background.SetTexture(BaseMap, GradientTexture());
-            CreateQuad("Water", background, new Vector3(0f, 0f, 12f), new Vector2(64f, 38f));
+            background.SetColor(BaseColor, spaceColor);
+            CreateQuad("Space", background, new Vector3(0f, 0f, 20f), new Vector2(90f, 54f));
 
-            var caustics = CausticsTexture();
-            causticsA = AdditiveMaterial(caustics, new Color(0.10f, 0.28f, 0.32f));
-            causticsA.mainTextureScale = new Vector2(3f, 1.8f);
-            causticsB = AdditiveMaterial(caustics, new Color(0.06f, 0.18f, 0.26f));
-            causticsB.mainTextureScale = new Vector2(2.2f, 1.3f);
-            CreateQuad("Caustics A", causticsA, new Vector3(0f, 0f, 9f), new Vector2(54f, 32f));
-            CreateQuad("Caustics B", causticsB, new Vector3(0f, 0f, 8.5f), new Vector2(54f, 32f));
-
-            var ray = AdditiveMaterial(RayTexture(), new Color(0.16f, 0.32f, 0.36f));
-            rays = new Transform[6];
-            for (int i = 0; i < rays.Length; i++)
-            {
-                float x = Mathf.Lerp(-15f, 15f, i / (rays.Length - 1f)) + UnityEngine.Random.Range(-1.5f, 1.5f);
-                rays[i] = CreateQuad($"Light Ray {i}", ray, new Vector3(x, 4f, 10f),
-                    new Vector2(UnityEngine.Random.Range(2f, 4.5f), 26f));
-            }
+            nebulaFar = AdditiveMaterial(NebulaTexture(nebulaA, nebulaB, 1), new Color(0.55f, 0.55f, 0.55f));
+            nebulaFar.mainTextureScale = new Vector2(1.2f, 0.8f);
+            nebulaNear = AdditiveMaterial(NebulaTexture(nebulaB, nebulaA, 2), new Color(0.35f, 0.35f, 0.35f));
+            nebulaNear.mainTextureScale = new Vector2(1.6f, 1f);
+            CreateQuad("Nebula Far", nebulaFar, new Vector3(0f, 0f, 18f), new Vector2(80f, 48f));
+            CreateQuad("Nebula Near", nebulaNear, new Vector3(0f, 0f, 16f), new Vector2(76f, 46f));
         }
 
-        void SpawnFish()
+        void SpawnPlanets()
         {
-            fish = new Fish[fishCount];
-            for (int i = 0; i < fishCount; i++)
+            planets = new[]
             {
-                var material = fishMaterials[i % fishMaterials.Length];
-                var root = new GameObject($"Fish {i}").transform;
-                root.SetParent(attractRoot.transform, false);
-                root.localPosition = new Vector3(
-                    UnityEngine.Random.Range(-halfExtents.x, halfExtents.x),
-                    UnityEngine.Random.Range(-halfExtents.y, halfExtents.y),
-                    UnityEngine.Random.Range(0f, 4f));
-                root.localScale = Vector3.one * UnityEngine.Random.Range(0.6f, 1.3f);
-
-                CreatePart(root, PrimitiveType.Sphere, material, Vector3.zero, new Vector3(1f, 0.45f, 0.3f), Vector3.zero);
-                CreatePart(root, PrimitiveType.Cube, material, new Vector3(0.02f, 0.2f, 0f), new Vector3(0.24f, 0.24f, 0.03f),
-                    new Vector3(0f, 0f, 45f));
-                CreatePart(root, PrimitiveType.Sphere, eyeMaterial, new Vector3(0.3f, 0.06f, 0.12f), Vector3.one * 0.08f, Vector3.zero);
-                CreatePart(root, PrimitiveType.Sphere, eyeMaterial, new Vector3(0.3f, 0.06f, -0.12f), Vector3.one * 0.08f, Vector3.zero);
-
-                var tail = new GameObject("Tail").transform;
-                tail.SetParent(root, false);
-                tail.localPosition = new Vector3(-0.42f, 0f, 0f);
-                CreatePart(tail, PrimitiveType.Cube, material, new Vector3(-0.16f, 0f, 0f), new Vector3(0.32f, 0.32f, 0.04f),
-                    new Vector3(0f, 0f, 45f));
-
-                bool left = UnityEngine.Random.value < 0.5f;
-                fish[i] = new Fish
-                {
-                    root = root,
-                    tail = tail,
-                    speed = swimSpeed * UnityEngine.Random.Range(0.7f, 1.3f),
-                    phase = UnityEngine.Random.Range(0f, 10f),
-                    seed = UnityEngine.Random.Range(0f, 100f),
-                    yaw = left ? 180f : 0f,
-                    velocity = new Vector3(left ? -1f : 1f, 0f, 0f) * swimSpeed,
-                };
-            }
+                CreatePlanet("Planet Violet", new Vector3(-15f, 6.5f, 14f), 7f, new Color(0.55f, 0.35f, 0.9f), new Color(0.2f, 0.1f, 0.4f), false),
+                CreatePlanet("Planet Teal", new Vector3(14f, -7f, 12f), 5f, new Color(0.3f, 0.85f, 0.75f), new Color(0.05f, 0.3f, 0.45f), true),
+            };
         }
 
-        void SpawnBubbles()
+        Planet CreatePlanet(string name, Vector3 position, float size, Color light, Color dark, bool ringed)
         {
-            var material = AdditiveMaterial(BubbleTexture(), new Color(0.5f, 0.75f, 0.85f));
-            bubbles = new Bubble[bubbleCount];
-            for (int i = 0; i < bubbleCount; i++)
+            var material = new Material(planetMaterial);
+            material.SetTexture(BaseMap, PlanetTexture(light, dark));
+            var sphere = CreatePart(attractRoot.transform, PrimitiveType.Sphere, material, position, Vector3.one * size,
+                new Vector3(20f, 0f, -15f));
+            sphere.name = name;
+            if (ringed)
             {
-                var size = UnityEngine.Random.Range(0.08f, 0.28f);
-                var transform = CreateQuad($"Bubble {i}", material, new Vector3(
-                    UnityEngine.Random.Range(-halfExtents.x - 2f, halfExtents.x + 2f),
+                var ring = AdditiveMaterial(RingTexture(0.75f, 0.12f), new Color(0.35f, 0.6f, 0.6f));
+                var quad = CreatePart(attractRoot.transform, PrimitiveType.Quad, ring, position, Vector3.one * size * 2.1f,
+                    new Vector3(72f, 0f, -18f));
+                quad.name = $"{name} Ring";
+            }
+            return new Planet { transform = sphere, spin = UnityEngine.Random.Range(4f, 8f) };
+        }
+
+        void SpawnStars()
+        {
+            var material = AdditiveMaterial(StarTexture(), Color.white);
+            stars = new Star[starCount];
+            for (int i = 0; i < starCount; i++)
+            {
+                float depth = UnityEngine.Random.value;
+                float size = Mathf.Lerp(0.06f, 0.22f, depth * depth) * UnityEngine.Random.Range(0.7f, 1.3f);
+                var transform = CreateQuad($"Star {i}", material, new Vector3(
+                    UnityEngine.Random.Range(-halfExtents.x - 1f, halfExtents.x + 1f),
                     UnityEngine.Random.Range(-halfExtents.y - 1f, halfExtents.y + 1f),
-                    UnityEngine.Random.Range(-0.5f, 5f)), Vector2.one * size);
-                bubbles[i] = new Bubble
+                    Mathf.Lerp(8f, 0f, depth)), Vector2.one * size);
+                float tint = UnityEngine.Random.value;
+                stars[i] = new Star
                 {
                     transform = transform,
+                    renderer = transform.GetComponent<Renderer>(),
                     size = size,
-                    speed = UnityEngine.Random.Range(0.5f, 1.4f),
+                    depth = depth,
                     seed = UnityEngine.Random.Range(0f, 100f),
+                    color = tint < 0.2f ? new Color(0.7f, 0.8f, 1.6f)
+                        : tint < 0.35f ? new Color(1.6f, 1.2f, 0.8f)
+                        : new Color(1.3f, 1.3f, 1.4f),
                 };
             }
         }
 
-        void SpawnRipplesAndGlows()
+        void SpawnAsteroids()
         {
-            var ring = AdditiveMaterial(RingTexture(), Color.white);
-            ripples = new Ripple[rippleCount];
-            for (int i = 0; i < rippleCount; i++)
+            asteroids = new Asteroid[asteroidCount];
+            for (int i = 0; i < asteroidCount; i++)
             {
-                var transform = CreateQuad($"Ripple {i}", ring, new Vector3(0f, 0f, -0.5f), Vector2.zero);
+                float size = UnityEngine.Random.Range(0.35f, 0.9f);
+                var transform = CreatePart(attractRoot.transform, PrimitiveType.Sphere, asteroidMaterial, new Vector3(
+                    UnityEngine.Random.Range(-halfExtents.x, halfExtents.x),
+                    UnityEngine.Random.Range(-halfExtents.y, halfExtents.y),
+                    UnityEngine.Random.Range(0.5f, 3f)),
+                    new Vector3(size * UnityEngine.Random.Range(0.8f, 1.2f), size * UnityEngine.Random.Range(0.6f, 0.9f), size),
+                    UnityEngine.Random.rotation.eulerAngles);
+                transform.name = $"Asteroid {i}";
+                for (int k = 0; k < 2; k++)
+                {
+                    var lump = CreatePart(transform, PrimitiveType.Sphere, asteroidMaterial,
+                        UnityEngine.Random.onUnitSphere * 0.3f, Vector3.one * UnityEngine.Random.Range(0.5f, 0.75f), Vector3.zero);
+                    lump.name = "Lump";
+                }
+                var direction = UnityEngine.Random.insideUnitCircle.normalized;
+                float speed = driftSpeed * UnityEngine.Random.Range(0.5f, 1.2f);
+                asteroids[i] = new Asteroid
+                {
+                    transform = transform,
+                    speed = speed,
+                    velocity = new Vector3(direction.x, direction.y * 0.5f, 0f) * speed,
+                    spinAxis = UnityEngine.Random.onUnitSphere,
+                    spin = UnityEngine.Random.Range(15f, 60f),
+                };
+            }
+        }
+
+        void SpawnEffects()
+        {
+            var ringMaterial = AdditiveMaterial(RingTexture(0.85f, 0.06f), Color.white);
+            rings = new Ring[ringCount];
+            for (int i = 0; i < ringCount; i++)
+            {
+                var transform = CreateQuad($"Shockwave {i}", ringMaterial, new Vector3(0f, 0f, -0.5f), Vector2.zero);
                 transform.gameObject.SetActive(false);
-                ripples[i] = new Ripple { transform = transform, renderer = transform.GetComponent<Renderer>() };
+                rings[i] = new Ring { transform = transform, renderer = transform.GetComponent<Renderer>() };
             }
 
-            var glow = AdditiveMaterial(DotTexture(), new Color(0.25f, 0.6f, 0.7f));
+            var glow = AdditiveMaterial(StarTexture(), new Color(0.9f, 0.85f, 1.4f));
             handGlows = new Transform[HandTrackingReceiver.HandCount];
             for (int i = 0; i < handGlows.Length; i++)
             {
-                handGlows[i] = CreateQuad($"Hand {i}", glow, new Vector3(0f, 0f, -0.6f), Vector2.one * 1.6f);
+                handGlows[i] = CreateQuad($"Hand {i}", glow, new Vector3(0f, 0f, -0.6f), Vector2.one * 1.8f);
                 handGlows[i].gameObject.SetActive(false);
             }
+
+            shootingStar = CreateQuad("Shooting Star", AdditiveMaterial(StreakTexture(), Color.white), Vector3.zero, new Vector2(4f, 0.12f));
+            shootingStarRenderer = shootingStar.GetComponent<Renderer>();
+            shootingStar.gameObject.SetActive(false);
+            nextShootingStar = Time.unscaledTime + 2f;
         }
 
-        void UpdateWater()
+        void UpdateSky(float dt)
         {
             float time = Time.unscaledTime;
-            causticsA.mainTextureOffset = new Vector2(time * 0.012f, time * 0.007f);
-            causticsB.mainTextureOffset = new Vector2(-time * 0.009f, time * 0.011f);
-            for (int i = 0; i < rays.Length; i++)
-                rays[i].localRotation = Quaternion.Euler(0f, 0f, 12f + 5f * Mathf.Sin(time * 0.25f + i * 1.7f));
+            nebulaFar.mainTextureOffset = new Vector2(time * 0.002f, time * 0.001f);
+            nebulaNear.mainTextureOffset = new Vector2(time * 0.004f, -time * 0.0015f);
+            foreach (var planet in planets)
+                planet.transform.Rotate(Vector3.up, planet.spin * dt, Space.Self);
         }
 
-        void UpdateFish(float dt)
+        void UpdateStars(float dt)
         {
             float time = Time.unscaledTime;
-            foreach (var f in fish)
+            float spanX = halfExtents.x + 1f, spanY = halfExtents.y + 1f;
+            foreach (var star in stars)
             {
-                var p = f.root.localPosition;
-                float angle = (Mathf.PerlinNoise(f.seed, time * 0.08f) - 0.5f) * Mathf.PI * 3f;
-                var desired = new Vector3(Mathf.Cos(angle), 0.35f * Mathf.Sin(angle), 0f) * f.speed;
-                if (Mathf.Abs(p.x) > halfExtents.x)
-                    desired.x = -Mathf.Sign(p.x) * f.speed;
-                if (Mathf.Abs(p.y) > halfExtents.y)
-                    desired.y = -Mathf.Sign(p.y) * f.speed * 0.6f;
+                var p = star.transform.localPosition;
+                p.x -= driftSpeed * (0.2f + star.depth) * dt;
 
+                var target = Vector3.zero;
                 for (int h = 0; h < handCount; h++)
                 {
                     var offset = p - hands[h];
@@ -303,66 +337,95 @@ namespace IPZ.Lobby
                     if (distance < 1e-3f)
                         continue;
                     var away = offset / distance;
-                    if (pinching[h] && distance < feedRadius)
-                        desired += -away * f.speed * 2f * Mathf.Clamp01((distance - 0.6f) / 1.5f);
-                    else if (!pinching[h] && distance < fleeRadius)
-                        desired += away * fleeSpeed * (1f - distance / fleeRadius);
+                    if (pinching[h] && distance < pullRadius)
+                    {
+                        float strength = 1f - distance / pullRadius;
+                        var swirl = new Vector3(-away.y, away.x, 0f);
+                        target += (swirl * 3f - away * 1.5f * Mathf.Clamp01(distance - 0.5f)) * strength;
+                    }
+                    else if (!pinching[h] && distance < pushRadius)
+                        target += away * pushStrength * (1f - distance / pushRadius);
                 }
+                star.push = Vector3.Lerp(star.push, target, 1f - Mathf.Exp(-4f * dt));
+                p += star.push * (0.4f + star.depth) * dt;
 
-                foreach (var other in fish)
-                {
-                    if (other == f)
-                        continue;
-                    var offset = p - other.root.localPosition;
-                    offset.z = 0f;
-                    float distance = offset.magnitude;
-                    if (distance < 1.1f && distance > 1e-3f)
-                        desired += offset / distance * (1.1f - distance);
-                }
+                if (p.x < -spanX) { p.x += 2f * spanX; p.y = UnityEngine.Random.Range(-spanY, spanY); }
+                else if (p.x > spanX) p.x -= 2f * spanX;
+                if (p.y < -spanY) p.y += 2f * spanY;
+                else if (p.y > spanY) p.y -= 2f * spanY;
+                star.transform.localPosition = p;
 
-                f.velocity = Vector3.Lerp(f.velocity, desired, 1f - Mathf.Exp(-2f * dt));
-                p += f.velocity * dt;
-                f.root.localPosition = p;
-
-                float speed = f.velocity.magnitude;
-                if (Mathf.Abs(f.velocity.x) > 0.15f)
-                    f.yaw = Mathf.MoveTowards(f.yaw, f.velocity.x < 0f ? 180f : 0f, 360f * dt);
-                float pitch = Mathf.Clamp(Mathf.Atan2(f.velocity.y, Mathf.Abs(f.velocity.x)) * Mathf.Rad2Deg, -35f, 35f);
-                f.root.localRotation = Quaternion.Euler(0f, f.yaw, pitch);
-
-                f.phase += dt * (5f + speed * 4f);
-                f.tail.localRotation = Quaternion.Euler(0f, Mathf.Sin(f.phase) * 35f, Mathf.Sin(f.phase) * 10f);
+                float twinkle = 0.55f + 0.45f * Mathf.Sin(time * (1.5f + star.seed % 3f) + star.seed);
+                float excite = Mathf.Clamp01(star.push.magnitude * 0.25f);
+                star.transform.localScale = Vector3.one * star.size * (1f + excite);
+                block.SetColor(BaseColor, star.color * (twinkle + excite));
+                star.renderer.SetPropertyBlock(block);
             }
         }
 
-        void UpdateBubbles(float dt)
+        void UpdateAsteroids(float dt)
         {
-            float time = Time.unscaledTime;
-            float top = halfExtents.y + 2f;
-            foreach (var b in bubbles)
+            foreach (var a in asteroids)
             {
-                var p = b.transform.localPosition;
-                p.y += b.speed * dt;
-                p.x += Mathf.Sin(time * 2f + b.seed) * 0.3f * dt;
+                var p = a.transform.localPosition;
+                var desired = a.velocity.normalized * a.speed;
                 for (int h = 0; h < handCount; h++)
                 {
                     var offset = p - hands[h];
                     offset.z = 0f;
                     float distance = offset.magnitude;
-                    if (distance < 1.5f && distance > 1e-3f)
-                        p += offset / distance * (1.5f - distance) * 3f * dt;
+                    if (distance < 1e-3f)
+                        continue;
+                    var away = offset / distance;
+                    if (pinching[h] && distance < pullRadius)
+                        desired += (new Vector3(-away.y, away.x, 0f) * 2.5f - away * Mathf.Clamp01(distance - 1.2f) * 2f)
+                                   * (1f - distance / pullRadius);
+                    else if (!pinching[h] && distance < pushRadius)
+                        desired += away * pushStrength * (1f - distance / pushRadius);
                 }
-                if (p.y > top)
-                {
-                    p.y = -top;
-                    p.x = UnityEngine.Random.Range(-halfExtents.x - 2f, halfExtents.x + 2f);
-                }
-                b.transform.localPosition = p;
+
+                a.velocity = Vector3.Lerp(a.velocity, desired, 1f - Mathf.Exp(-1.5f * dt));
+                if (a.velocity.sqrMagnitude < 0.01f)
+                    a.velocity = UnityEngine.Random.insideUnitCircle.normalized * a.speed;
+                p += a.velocity * dt;
+                p.x = Wrap(p.x, halfExtents.x + 1.5f);
+                p.y = Wrap(p.y, halfExtents.y + 1.5f);
+                a.transform.localPosition = p;
+                a.transform.Rotate(a.spinAxis, (a.spin + a.velocity.magnitude * 20f) * dt, Space.World);
             }
+        }
+
+        void UpdateShootingStar(float dt)
+        {
+            float time = Time.unscaledTime;
+            if (shootingStarAge > 1.2f && time >= nextShootingStar)
+            {
+                shootingStarAge = 0f;
+                nextShootingStar = time + shootingStarEvery * UnityEngine.Random.Range(0.6f, 1.6f);
+                float fromLeft = UnityEngine.Random.value < 0.5f ? -1f : 1f;
+                var start = new Vector3(fromLeft * UnityEngine.Random.Range(2f, halfExtents.x),
+                    UnityEngine.Random.Range(1f, halfExtents.y), 6f);
+                shootingStarVelocity = new Vector3(-fromLeft * 16f, -UnityEngine.Random.Range(4f, 8f), 0f);
+                shootingStar.localPosition = start;
+                float angle = Mathf.Atan2(shootingStarVelocity.y, shootingStarVelocity.x) * Mathf.Rad2Deg;
+                shootingStar.localRotation = Quaternion.Euler(0f, 0f, angle);
+                shootingStar.gameObject.SetActive(true);
+            }
+            if (shootingStarAge > 1.2f)
+                return;
+
+            shootingStarAge += dt;
+            shootingStar.localPosition += shootingStarVelocity * dt;
+            float fade = Mathf.Sin(Mathf.Clamp01(shootingStarAge / 1.2f) * Mathf.PI);
+            block.SetColor(BaseColor, new Color(1.4f, 1.4f, 1.6f) * fade);
+            shootingStarRenderer.SetPropertyBlock(block);
+            if (shootingStarAge > 1.2f)
+                shootingStar.gameObject.SetActive(false);
         }
 
         void UpdateHands(float dt)
         {
+            float time = Time.unscaledTime;
             for (int i = 0; i < handGlows.Length; i++)
             {
                 bool visible = i < handCount;
@@ -373,8 +436,8 @@ namespace IPZ.Lobby
                     if (visible)
                     {
                         glow.localPosition = new Vector3(hands[i].x, hands[i].y, glow.localPosition.z);
-                        lastRippleAt[i] = hands[i];
-                        SpawnRipple(hands[i]);
+                        lastRingAt[i] = hands[i];
+                        SpawnRing(hands[i]);
                     }
                 }
                 if (!visible)
@@ -382,39 +445,41 @@ namespace IPZ.Lobby
 
                 var target = new Vector3(hands[i].x, hands[i].y, glow.localPosition.z);
                 glow.localPosition = Vector3.Lerp(glow.localPosition, target, 1f - Mathf.Exp(-18f * dt));
-                glow.localScale = Vector3.one * (pinching[i] ? 1.1f : 1.6f);
-                if ((hands[i] - lastRippleAt[i]).magnitude > rippleSpacing)
+                float pulse = 1f + 0.08f * Mathf.Sin(time * 6f);
+                glow.localScale = Vector3.one * (pinching[i] ? 1.2f : 1.8f) * pulse;
+                glow.localRotation = Quaternion.Euler(0f, 0f, time * (pinching[i] ? 120f : 15f));
+                if ((hands[i] - lastRingAt[i]).magnitude > ringSpacing)
                 {
-                    lastRippleAt[i] = hands[i];
-                    SpawnRipple(hands[i]);
+                    lastRingAt[i] = hands[i];
+                    SpawnRing(hands[i]);
                 }
             }
 
-            foreach (var ripple in ripples)
+            foreach (var ring in rings)
             {
-                if (ripple.age >= rippleSeconds)
+                if (ring.age >= ringSeconds)
                     continue;
-                ripple.age += dt;
-                float t = Mathf.Clamp01(ripple.age / rippleSeconds);
+                ring.age += dt;
+                float t = Mathf.Clamp01(ring.age / ringSeconds);
                 if (t >= 1f)
                 {
-                    ripple.transform.gameObject.SetActive(false);
+                    ring.transform.gameObject.SetActive(false);
                     continue;
                 }
-                ripple.transform.localScale = Vector3.one * Mathf.Lerp(0.4f, 3.2f, 1f - (1f - t) * (1f - t));
-                block.SetColor(BaseColor, new Color(0.3f, 0.65f, 0.75f) * (1f - t));
-                ripple.renderer.SetPropertyBlock(block);
+                ring.transform.localScale = Vector3.one * Mathf.Lerp(0.4f, 3.6f, 1f - (1f - t) * (1f - t));
+                block.SetColor(BaseColor, new Color(0.55f, 0.45f, 0.95f) * (1f - t));
+                ring.renderer.SetPropertyBlock(block);
             }
         }
 
-        void SpawnRipple(Vector3 position)
+        void SpawnRing(Vector3 position)
         {
-            var ripple = ripples[nextRipple];
-            nextRipple = (nextRipple + 1) % ripples.Length;
-            ripple.age = 0f;
-            ripple.transform.localPosition = new Vector3(position.x, position.y, -0.5f);
-            ripple.transform.localScale = Vector3.zero;
-            ripple.transform.gameObject.SetActive(true);
+            var ring = rings[nextRing];
+            nextRing = (nextRing + 1) % rings.Length;
+            ring.age = 0f;
+            ring.transform.localPosition = new Vector3(position.x, position.y, -0.5f);
+            ring.transform.localScale = Vector3.zero;
+            ring.transform.gameObject.SetActive(true);
         }
 
         void UpdatePrompt()
@@ -424,8 +489,8 @@ namespace IPZ.Lobby
             progressFill.localPosition = new Vector3(-progressWidth * 0.5f * (1f - fill), progressFill.localPosition.y,
                 progressFill.localPosition.z);
 
-            prompt.text = handCount > 0 ? "Trzymaj dłoń w wodzie…"
-                : receiver.IsReceiving ? "Włóż dłoń do wody, aby zacząć"
+            prompt.text = handCount > 0 ? "Trzymaj dłoń w górze…"
+                : receiver.IsReceiving ? "Podnieś dłoń przed kamerą, aby zacząć"
                 : "Kliknij, aby zacząć";
             var color = promptColor;
             color.a = handCount > 0 ? 1f : 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * 2.5f);
@@ -462,63 +527,81 @@ namespace IPZ.Lobby
             return part.transform;
         }
 
-        Texture2D GradientTexture()
+        static Texture2D NebulaTexture(Color first, Color second, int seed)
         {
-            var texture = new Texture2D(1, 128, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-            for (int y = 0; y < 128; y++)
-                texture.SetPixel(0, y, Color.Lerp(deepColor, shallowColor, Mathf.Pow(y / 127f, 1.6f)));
-            texture.Apply();
-            return texture;
-        }
-
-        static Texture2D CausticsTexture()
-        {
-            const int size = 256;
-            var waves = new[] { (3, 1, 1, 2), (-2, 3, 2, -1), (1, -3, -3, 1) };
-            return Generate(size, size, TextureWrapMode.Repeat, (u, v) =>
+            var random = new System.Random(seed);
+            var waves = new (int a, int b, float phase, float weight)[12];
+            for (int i = 0; i < waves.Length; i++)
             {
-                float sum = 0f;
-                foreach (var (a, b, c, d) in waves)
+                int octave = 1 + i / 3;
+                waves[i] = (random.Next(-octave, octave + 1), random.Next(-octave, octave + 1) | 1,
+                    (float)random.NextDouble() * 6.28f, 1f / octave);
+            }
+
+            float Field(float u, float v, int offset)
+            {
+                float sum = 0f, total = 0f;
+                for (int i = offset; i < waves.Length; i += 2)
                 {
-                    float warp = 1.4f * Mathf.Sin(2f * Mathf.PI * (c * u + d * v));
-                    sum += 1f - Mathf.Abs(Mathf.Sin(2f * Mathf.PI * (a * u + b * v) + warp));
+                    var w = waves[i];
+                    sum += Mathf.Sin(2f * Mathf.PI * (w.a * u + w.b * v) + w.phase) * w.weight;
+                    total += w.weight;
                 }
-                return Mathf.Pow(sum / waves.Length, 5f);
+                return sum / total * 0.5f + 0.5f;
+            }
+
+            return Generate(256, 256, TextureWrapMode.Repeat, (u, v) =>
+            {
+                float a = Mathf.Pow(Mathf.Clamp01(Field(u, v, 0) * 1.6f - 0.55f), 1.8f);
+                float b = Mathf.Pow(Mathf.Clamp01(Field(u, v, 1) * 1.6f - 0.6f), 1.8f);
+                var c = first * a + second * b;
+                c.a = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+                return c;
             });
         }
 
-        static Texture2D RayTexture() => Generate(32, 128, TextureWrapMode.Clamp,
-            (u, v) => Mathf.Pow(Mathf.Sin(Mathf.PI * u), 2f) * v * v);
-
-        static Texture2D DotTexture() => Generate(64, 64, TextureWrapMode.Clamp,
-            (u, v) => Mathf.Pow(Mathf.Clamp01(1f - Radius(u, v)), 2.2f));
-
-        static Texture2D RingTexture() => Generate(128, 128, TextureWrapMode.Clamp, (u, v) =>
+        static Texture2D PlanetTexture(Color light, Color dark)
         {
-            float r = Radius(u, v);
-            return Mathf.Exp(-Mathf.Pow((r - 0.85f) / 0.06f, 2f));
+            var random = new System.Random(light.GetHashCode());
+            float phase = (float)random.NextDouble() * 6.28f;
+            return Generate(256, 128, TextureWrapMode.Repeat, (u, v) =>
+            {
+                float bands = Mathf.Sin(v * 18f + Mathf.Sin(u * 6.28f * 3f + phase) * 0.8f) * 0.5f + 0.5f;
+                float detail = Mathf.Sin(v * 47f + u * 6.28f * 2f + phase) * 0.15f;
+                var c = Color.Lerp(dark, light, Mathf.Clamp01(bands + detail));
+                c.a = 1f;
+                return c;
+            });
+        }
+
+        static Texture2D StarTexture() => Generate(64, 64, TextureWrapMode.Clamp, (u, v) =>
+        {
+            float x = Mathf.Abs(u - 0.5f) * 2f, y = Mathf.Abs(v - 0.5f) * 2f;
+            float core = Mathf.Pow(Mathf.Clamp01(1f - Mathf.Sqrt(x * x + y * y)), 3f);
+            float spikes = Mathf.Clamp01(1f - x) * Mathf.Exp(-y * 25f) + Mathf.Clamp01(1f - y) * Mathf.Exp(-x * 25f);
+            return Gray(Mathf.Clamp01(core + 0.5f * spikes * spikes));
         });
 
-        static Texture2D BubbleTexture() => Generate(64, 64, TextureWrapMode.Clamp, (u, v) =>
+        static Texture2D RingTexture(float radius, float width) => Generate(128, 128, TextureWrapMode.Clamp,
+            (u, v) => Gray(Mathf.Exp(-Mathf.Pow((Radius(u, v) - radius) / width, 2f))));
+
+        static Texture2D StreakTexture() => Generate(128, 16, TextureWrapMode.Clamp, (u, v) =>
         {
-            float r = Radius(u, v);
-            float rim = Mathf.Exp(-Mathf.Pow((r - 0.82f) / 0.1f, 2f));
-            float shine = Mathf.Exp(-Mathf.Pow(Vector2.Distance(new Vector2(u, v), new Vector2(0.36f, 0.66f)) / 0.08f, 2f));
-            return Mathf.Clamp01(rim + 0.12f * (1f - r) + shine) * (r < 1f ? 1f : 0f);
+            float across = Mathf.Exp(-Mathf.Pow((v - 0.5f) / 0.18f, 2f));
+            return Gray(Mathf.Pow(u, 3f) * across);
         });
+
+        static Color Gray(float value) => new Color(value, value, value, value);
 
         static float Radius(float u, float v) => Vector2.Distance(new Vector2(u, v), new Vector2(0.5f, 0.5f)) * 2f;
 
-        static Texture2D Generate(int width, int height, TextureWrapMode wrap, Func<float, float, float> value)
+        static Texture2D Generate(int width, int height, TextureWrapMode wrap, Func<float, float, Color> value)
         {
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, true) { wrapMode = wrap };
             var pixels = new Color[width * height];
             for (int y = 0; y < height; y++)
             for (int x = 0; x < width; x++)
-            {
-                float c = Mathf.Clamp01(value((float)x / width, (float)y / height));
-                pixels[y * width + x] = new Color(c, c, c, c);
-            }
+                pixels[y * width + x] = value((float)x / width, (float)y / height);
             texture.SetPixels(pixels);
             texture.Apply();
             return texture;
@@ -531,6 +614,9 @@ namespace IPZ.Lobby
             float distance = (root.position.z - ray.origin.z) / ray.direction.z;
             return root.InverseTransformPoint(ray.GetPoint(distance));
         }
+
+        static float Wrap(float value, float half) =>
+            value > half ? value - 2f * half : value < -half ? value + 2f * half : value;
 
         float Remap(float value) => Mathf.Clamp01((value - edgeMargin) / (1f - 2f * edgeMargin));
 
