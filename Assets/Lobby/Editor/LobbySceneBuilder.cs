@@ -179,36 +179,39 @@ namespace IPZ.Lobby
             so.FindProperty("prompt").objectReferenceValue = prompt;
             so.FindProperty("progressFill").objectReferenceValue = fill.transform;
             so.FindProperty("progressWidth").floatValue = barWidth;
-            so.FindProperty("backgroundMaterial").objectReferenceValue = UnlitMaterial("SpaceBackground", false);
-            so.FindProperty("additiveMaterial").objectReferenceValue = UnlitMaterial("SpaceAdditive", true);
-            so.FindProperty("asteroidMaterial").objectReferenceValue =
-                NeonStyle.GlowLit(MaterialFolder, "Asteroid", new Color(0.42f, 0.38f, 0.36f), ZutColors.Blue, 0.08f);
-            so.FindProperty("planetMaterial").objectReferenceValue =
-                NeonStyle.GlowLit(MaterialFolder, "Planet", Color.white, Color.white, 0.12f);
+            so.FindProperty("backgroundMaterial").objectReferenceValue = UnlitMaterial("SpaceBackground", Blending.Opaque);
+            so.FindProperty("additiveMaterial").objectReferenceValue = UnlitMaterial("SpaceAdditive", Blending.Additive);
+            so.FindProperty("asteroidMaterial").objectReferenceValue = UnlitMaterial("Asteroid", Blending.Opaque);
+            so.FindProperty("planetMaterial").objectReferenceValue = UnlitMaterial("Planet", Blending.Opaque);
+            so.FindProperty("shadeMaterial").objectReferenceValue = UnlitMaterial("PlanetShade", Blending.Alpha);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.SetActive(false);
         }
 
-        static Material UnlitMaterial(string name, bool additive)
+        enum Blending { Opaque, Additive, Alpha }
+
+        static Material UnlitMaterial(string name, Blending blending)
         {
             var path = $"{MaterialFolder}/{name}.mat";
             var material = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (material == null)
+            if (material == null || material.shader.name != "Universal Render Pipeline/Unlit")
             {
+                if (material != null)
+                    AssetDatabase.DeleteAsset(path);
                 material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
                 AssetDatabase.CreateAsset(material, path);
             }
-            material.shader = Shader.Find("Universal Render Pipeline/Unlit");
             material.SetColor("_BaseColor", Color.white);
-            if (additive)
+            if (blending != Blending.Opaque)
             {
+                bool additive = blending == Blending.Additive;
                 material.SetFloat("_Surface", 1f);
-                material.SetFloat("_Blend", 2f);
-                material.SetFloat("_SrcBlend", (float)BlendMode.One);
-                material.SetFloat("_DstBlend", (float)BlendMode.One);
+                material.SetFloat("_Blend", additive ? 2f : 0f);
+                material.SetFloat("_SrcBlend", (float)(additive ? BlendMode.One : BlendMode.SrcAlpha));
+                material.SetFloat("_DstBlend", (float)(additive ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
                 material.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
-                material.SetFloat("_DstBlendAlpha", (float)BlendMode.One);
+                material.SetFloat("_DstBlendAlpha", (float)(additive ? BlendMode.One : BlendMode.OneMinusSrcAlpha));
                 material.SetFloat("_ZWrite", 0f);
                 material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 material.SetOverrideTag("RenderType", "Transparent");

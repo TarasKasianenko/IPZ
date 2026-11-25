@@ -55,6 +55,7 @@ namespace IPZ.Lobby
         [SerializeField] Material additiveMaterial;
         [SerializeField] Material asteroidMaterial;
         [SerializeField] Material planetMaterial;
+        [SerializeField] Material shadeMaterial;
         [SerializeField] Color spaceColor = new Color(0.005f, 0.01f, 0.035f);
         [SerializeField] Color nebulaA = new Color(0.35f, 0.08f, 0.45f);
         [SerializeField] Color nebulaB = new Color(0.02f, 0.25f, 0.45f);
@@ -216,6 +217,22 @@ namespace IPZ.Lobby
             var sphere = CreatePart(attractRoot.transform, PrimitiveType.Sphere, material, position, Vector3.one * size,
                 new Vector3(20f, 0f, -15f));
             sphere.name = name;
+
+            var halo = AdditiveMaterial(HaloTexture(), light * 0.6f);
+            CreatePart(attractRoot.transform, PrimitiveType.Quad, halo, position, Vector3.one * size * 1.45f, Vector3.zero).name = $"{name} Halo";
+
+            float radius = size * 0.5f;
+            var cameraLocal = attractRoot.transform.InverseTransformPoint(view.transform.position);
+            float distance = Vector3.Distance(cameraLocal, position);
+            var towardCamera = (cameraLocal - position) / distance;
+            float shadeDistance = distance - radius - 0.05f;
+            float shadeSize = 2f * radius * shadeDistance / Mathf.Sqrt(distance * distance - radius * radius);
+            var shade = new Material(shadeMaterial);
+            shade.SetTexture(BaseMap, ShadeTexture());
+            var shadeQuad = CreatePart(attractRoot.transform, PrimitiveType.Quad, shade, position + towardCamera * (radius + 0.05f),
+                Vector3.one * shadeSize, Vector3.zero);
+            shadeQuad.name = $"{name} Shade";
+            shadeQuad.localRotation = Quaternion.LookRotation(-towardCamera);
             if (ringed)
             {
                 var ring = AdditiveMaterial(RingTexture(0.75f, 0.12f), new Color(0.35f, 0.6f, 0.6f));
@@ -255,11 +272,18 @@ namespace IPZ.Lobby
 
         void SpawnAsteroids()
         {
+            var rocks = new[]
+            {
+                RockMaterial(new Color(0.75f, 0.55f, 0.4f), 1),
+                RockMaterial(new Color(0.55f, 0.6f, 0.75f), 2),
+                RockMaterial(new Color(0.8f, 0.45f, 0.55f), 3),
+            };
             asteroids = new Asteroid[asteroidCount];
             for (int i = 0; i < asteroidCount; i++)
             {
                 float size = UnityEngine.Random.Range(0.35f, 0.9f);
-                var transform = CreatePart(attractRoot.transform, PrimitiveType.Sphere, asteroidMaterial, new Vector3(
+                var rock = rocks[i % rocks.Length];
+                var transform = CreatePart(attractRoot.transform, PrimitiveType.Sphere, rock, new Vector3(
                     UnityEngine.Random.Range(-halfExtents.x, halfExtents.x),
                     UnityEngine.Random.Range(-halfExtents.y, halfExtents.y),
                     UnityEngine.Random.Range(0.5f, 3f)),
@@ -268,7 +292,7 @@ namespace IPZ.Lobby
                 transform.name = $"Asteroid {i}";
                 for (int k = 0; k < 2; k++)
                 {
-                    var lump = CreatePart(transform, PrimitiveType.Sphere, asteroidMaterial,
+                    var lump = CreatePart(transform, PrimitiveType.Sphere, rock,
                         UnityEngine.Random.onUnitSphere * 0.3f, Vector3.one * UnityEngine.Random.Range(0.5f, 0.75f), Vector3.zero);
                     lump.name = "Lump";
                 }
@@ -497,6 +521,14 @@ namespace IPZ.Lobby
             prompt.color = color;
         }
 
+        Material RockMaterial(Color color, int seed)
+        {
+            var material = new Material(asteroidMaterial);
+            material.SetTexture(BaseMap, RockTexture(color, seed));
+            material.SetColor(BaseColor, Color.white);
+            return material;
+        }
+
         Material AdditiveMaterial(Texture texture, Color tint)
         {
             var material = new Material(additiveMaterial);
@@ -573,6 +605,58 @@ namespace IPZ.Lobby
                 return c;
             });
         }
+
+        static Texture2D RockTexture(Color color, int seed)
+        {
+            var random = new System.Random(seed);
+            var craters = new Vector3[14];
+            for (int i = 0; i < craters.Length; i++)
+                craters[i] = new Vector3((float)random.NextDouble(), 0.15f + 0.7f * (float)random.NextDouble(),
+                    0.02f + 0.05f * (float)random.NextDouble());
+            var light = new Vector3(-0.5f, 0.6f, -0.6f).normalized;
+
+            return Generate(128, 64, TextureWrapMode.Repeat, (u, v) =>
+            {
+                float lon = u * 2f * Mathf.PI, lat = (v - 0.5f) * Mathf.PI;
+                var normal = new Vector3(Mathf.Cos(lat) * Mathf.Cos(lon), Mathf.Sin(lat), Mathf.Cos(lat) * Mathf.Sin(lon));
+                float lit = 0.35f + 0.85f * Mathf.Max(0f, Vector3.Dot(normal, -light));
+                float grain = 0.85f + 0.15f * Mathf.Sin(u * 97f + Mathf.Sin(v * 41f) * 3f) * Mathf.Sin(v * 73f + u * 13f);
+                float crater = 1f;
+                foreach (var c in craters)
+                {
+                    float du = Mathf.Min(Mathf.Abs(u - c.x), 1f - Mathf.Abs(u - c.x)) * 2f, dv = v - c.y;
+                    float d = Mathf.Sqrt(du * du + dv * dv) / c.z;
+                    if (d < 1f)
+                        crater = Mathf.Min(crater, 0.55f + 0.45f * d * d);
+                    else if (d < 1.3f)
+                        crater = Mathf.Max(crater, 1.15f);
+                }
+                var result = color * lit * grain * crater;
+                result.a = 1f;
+                return result;
+            });
+        }
+
+        static Texture2D ShadeTexture()
+        {
+            var light = new Vector3(-0.55f, 0.5f, 0.67f).normalized;
+            return Generate(128, 128, TextureWrapMode.Clamp, (u, v) =>
+            {
+                float x = u * 2f - 1f, y = v * 2f - 1f, r = Mathf.Sqrt(x * x + y * y);
+                if (r >= 1f)
+                    return Color.clear;
+                var normal = new Vector3(x, y, Mathf.Sqrt(1f - r * r));
+                float lit = Mathf.Clamp01(Vector3.Dot(normal, light));
+                float edge = Mathf.Clamp01((1f - r) * 40f);
+                return new Color(0f, 0f, 0.02f, Mathf.Pow(1f - lit, 1.4f) * 0.93f * edge);
+            });
+        }
+
+        static Texture2D HaloTexture() => Generate(128, 128, TextureWrapMode.Clamp, (u, v) =>
+        {
+            float r = Radius(u, v) * 1.45f;
+            return Gray(r < 1f ? 0f : Mathf.Exp(-Mathf.Pow((r - 1f) / 0.12f, 2f)));
+        });
 
         static Texture2D StarTexture() => Generate(64, 64, TextureWrapMode.Clamp, (u, v) =>
         {
