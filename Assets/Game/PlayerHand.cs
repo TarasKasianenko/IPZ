@@ -78,6 +78,9 @@ namespace IPZ.AirHockey
         public bool IsHolding(HandGesture gesture, float seconds) =>
             IsPresent && Gesture == gesture && heldSeconds >= seconds && (!consumed || gesture == HandGesture.OpenPalm);
 
+        public bool HasHeld(HandGesture gesture, float seconds) =>
+            IsPresent && Gesture == gesture && heldSeconds >= seconds;
+
         /// One-shot commands stop counting until the hand changes gesture, so one fist cannot fire twice.
         /// An open palm is a state rather than a command, so it keeps counting.
         public void Consume() => consumed = true;

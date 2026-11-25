@@ -60,6 +60,7 @@ namespace IPZ.Maze
         [Header("Flow")]
         [SerializeField] float readySeconds = 0.6f;
         [SerializeField] float commandSeconds = 1f;
+        [SerializeField] float menuSeconds = 3f;
         [SerializeField] float countdownSeconds = 3f;
         [SerializeField] float fallSeconds = 0.8f;
         [SerializeField] float levelDoneSeconds = 2f;
@@ -110,7 +111,7 @@ namespace IPZ.Maze
             foreach (var hand in hands)
                 hand.Update(receiver, now);
 
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape) || WantsMenu())
             {
                 SceneManager.LoadScene(LobbyScene);
                 return;
@@ -199,6 +200,16 @@ namespace IPZ.Maze
             SetState(State.Waiting);
             ready[0] = ready[1] = false;
             ResetBall();
+        }
+
+        bool WantsMenu()
+        {
+            if (state != State.Waiting && state != State.Paused)
+                return false;
+            foreach (var hand in hands)
+                if (hand.HasHeld(HandGesture.Fist, menuSeconds))
+                    return true;
+            return false;
         }
 
         void SetState(State next)
@@ -314,7 +325,7 @@ namespace IPZ.Maze
         {
             foreach (var hand in hands)
             {
-                if (hand.IsHolding(HandGesture.Fist, commandSeconds))
+                if (hand.IsHolding(HandGesture.ThumbUp, readySeconds))
                 {
                     SetState(State.Playing);
                     return;
@@ -466,7 +477,7 @@ namespace IPZ.Maze
             {
                 case State.Waiting:
                     message = hands.Length == 1 ? "Pokaż otwartą dłoń" : "Pokażcie otwarte dłonie";
-                    detail = receiver.IsReceiving ? ReadinessText()
+                    detail = receiver.IsReceiving ? ReadinessText() + "\nTrzymaj pięść: menu"
                         : TrackerLauncher.IsLaunching ? "Uruchamianie trackera…"
                         : "Brak danych z trackera. Spacja: gra klawiaturą (strzałki)";
                     break;
@@ -483,7 +494,7 @@ namespace IPZ.Maze
                     break;
                 case State.Paused:
                     message = "Pauza";
-                    detail = "Zaciśnij pięść, aby wznowić. Esc: menu";
+                    detail = "Kciuk w górę: wznów. Trzymaj pięść: menu";
                     break;
                 case State.Finished:
                     message = "Labirynt ukończony!";

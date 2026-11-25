@@ -40,6 +40,7 @@ namespace IPZ.AirHockey
         [Header("Gestures")]
         [SerializeField] float readySeconds = 0.6f;
         [SerializeField] float commandSeconds = 1f;
+        [SerializeField] float menuSeconds = 3f;
 
         [Header("Hand to table")]
         [SerializeField, Tooltip("Table units per camera frame width.")]
@@ -100,7 +101,7 @@ namespace IPZ.AirHockey
             foreach (var hand in hands)
                 hand.Update(receiver, now);
 
-            if (Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape) || WantsMenu())
             {
                 SceneManager.LoadScene(LobbyScene);
                 return;
@@ -121,6 +122,16 @@ namespace IPZ.AirHockey
                 StepTable(dt);
 
             UpdateView(dt);
+        }
+
+        bool WantsMenu()
+        {
+            if (state != State.Waiting && state != State.Paused)
+                return false;
+            foreach (var hand in hands)
+                if (hand.HasHeld(HandGesture.Fist, menuSeconds))
+                    return true;
+            return false;
         }
 
         void SetState(State next)
@@ -221,7 +232,7 @@ namespace IPZ.AirHockey
         {
             foreach (var hand in hands)
             {
-                if (hand.IsHolding(HandGesture.Fist, commandSeconds))
+                if (hand.IsHolding(HandGesture.ThumbUp, readySeconds))
                 {
                     StartCountdown(false);
                     return;
@@ -340,7 +351,7 @@ namespace IPZ.AirHockey
             {
                 case State.Waiting:
                     message = hands.Length == 1 ? "Pokaż otwartą dłoń" : "Pokażcie otwarte dłonie";
-                    detail = receiver.IsReceiving ? ReadinessText()
+                    detail = receiver.IsReceiving ? ReadinessText() + "\nTrzymaj pięść: menu"
                         : TrackerLauncher.IsLaunching ? "Uruchamianie trackera…"
                         : "Brak danych z trackera. Uruchom Tracker/run.cmd";
                     break;
@@ -353,7 +364,7 @@ namespace IPZ.AirHockey
                     break;
                 case State.Paused:
                     message = "Pauza";
-                    detail = "Zaciśnij pięść, aby wznowić. Esc: menu";
+                    detail = "Kciuk w górę: wznów. Trzymaj pięść: menu";
                     break;
                 case State.GameOver:
                     message = WinnerText();
